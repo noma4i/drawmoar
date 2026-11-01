@@ -226,12 +226,12 @@ import XCTest
         XCTAssertNotEqual(model.history.first?.id, first.id)
         let restored = EditorModel(client: client, defaults: defaults, historyDirectory: directory)
         let saved = try XCTUnwrap(restored.history.first { $0.id == first.id })
-        XCTAssertEqual(saved.drawing.strokes.count, expectedDrawing.strokes.count)
-        XCTAssertEqual(saved.drawing.strokes.first?.path.first?.location, expectedDrawing.strokes.first?.path.first?.location)
         XCTAssertEqual(saved.crop, CGRect(x: 0, y: 0, width: 1, height: 1))
         await restored.select(saved)
+        XCTAssertEqual(restored.drawing.strokes.count, expectedDrawing.strokes.count)
+        XCTAssertEqual(restored.drawing.strokes.first?.path.first?.location, expectedDrawing.strokes.first?.path.first?.location)
         XCTAssertEqual(client.sessions, [first.id])
-        let expected = try ImageRenderer.png(image: saved.image, drawing: saved.drawing, crop: saved.crop)
+        let expected = try ImageRenderer.png(image: XCTUnwrap(restored.image), drawing: restored.drawing, crop: restored.crop)
         XCTAssertEqual(client.images, [expected])
         restored.deleteHistory(saved)
         XCTAssertNil(restored.image)
@@ -240,17 +240,67 @@ import XCTest
         XCTAssertFalse(reloaded.history.contains { $0.id == saved.id })
     }
 
-    func testHistoryLimitAndCropUndo() async throws {
+    func testHistoryThumbnailAndLazyOriginalLoading() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storage = CaptureHistory(directory: directory)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 800, height: 400), format: format).image { _ in }
+        let capture = CaptureEntry(id: "sample", date: Date(), image: image, drawing: PKDrawing(), crop: CGRect(x: 100, y: 0, width: 600, height: 400), windows: [])
+        _ = try storage.save(capture)
+        let thumbnail = try XCTUnwrap(UIImage(contentsOfFile: directory.appendingPathComponent("sample.thumbnail").path)?.cgImage)
+        XCTAssertEqual(thumbnail.width, 240)
+        XCTAssertEqual(thumbnail.height, 160)
+        let original = directory.appendingPathComponent("sample.png")
+        let moved = directory.appendingPathComponent("original")
+        try FileManager.default.moveItem(at: original, to: moved)
+        let model = try EditorModel(client: nil, defaults: XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), historyDirectory: directory)
+        let entry = try XCTUnwrap(model.history.first)
+        XCTAssertNotNil(entry.thumbnail)
+        await model.select(entry)
+        XCTAssertNil(model.image)
+        XCTAssertNotNil(model.error)
+        try FileManager.default.moveItem(at: moved, to: original)
+        await model.select(entry)
+        XCTAssertEqual(model.image?.cgImage?.width, 800)
+    }
+
+    func testDeleteCurrentAndOtherHistoryAfterDebounce() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let clock = TestDelay()
+        let model = try EditorModel(client: FakeClient(), defaults: XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), delay: { try await clock.wait() }, historyDirectory: directory)
+        await model.newCapture()
+        let other = try XCTUnwrap(model.history.first)
+        await model.newCapture()
+        let current = try XCTUnwrap(model.history.first)
+        model.crop = CGRect(x: 0, y: 0, width: 1, height: 1)
+        await Task.yield()
+        model.deleteHistory(other)
+        model.deleteHistory(current)
+        clock.advance()
+        await clock.settle()
+        XCTAssertNil(model.image)
+        XCTAssertTrue(model.history.isEmpty)
+        for entry in [other, current] {
+            for suffix in ["json", "png", "drawing", "thumbnail"] {
+                XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent(entry.id + "." + suffix).path))
+            }
+        }
+    }
+
+    func testHistoryKeepsMoreThanFiftyAndCropUndo() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let client = FakeClient()
         let model = try EditorModel(client: client, defaults: XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), historyDirectory: directory)
-        for _ in 0 ..< 31 {
+        for _ in 0 ..< 51 {
             await model.newCapture()
         }
-        XCTAssertEqual(model.history.count, 30)
+        XCTAssertEqual(model.history.count, 51)
         let restored = try EditorModel(client: nil, defaults: XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), historyDirectory: directory)
-        XCTAssertEqual(restored.history.count, 30)
+        XCTAssertEqual(restored.history.count, 51)
         let image = try XCTUnwrap(model.image)
         model.applyCrop(CGRect(x: 0, y: 0, width: 1, height: 1))
         let cropped = try XCTUnwrap(UIImage(data: ImageRenderer.png(image: image, drawing: model.drawing, crop: model.crop))?.cgImage)

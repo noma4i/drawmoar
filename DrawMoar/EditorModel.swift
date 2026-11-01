@@ -21,7 +21,7 @@ enum Appearance: String, CaseIterable {
     private(set) var windows: [WindowFrame] = []
     private var session = UUID().uuidString
     private var captureDate = Date()
-    private(set) var history: [CaptureEntry] = []
+    private(set) var history: [HistoryEntry] = []
     private let storage: CaptureHistory
     private var cropUndo: [CGRect?] = []
     private var windowChain: [WindowFrame] = []
@@ -88,6 +88,7 @@ enum Appearance: String, CaseIterable {
         let savedWidth = CGFloat(defaults.double(forKey: "lineWidth"))
         lineWidth = Self.lineWidths.contains(savedWidth) ? savedWidth : Self.lineWidths[1]
         do { history = try storage.load() } catch { self.error = error.localizedDescription }
+        migrateThumbnails()
         if let value = defaults.object(forKey: "displayId") as? Int {
             selectedDisplay = UInt32(exactly: value)
         }
@@ -183,18 +184,35 @@ enum Appearance: String, CaseIterable {
     }
 
     private func save(_ entry: CaptureEntry) throws {
-        try storage.save(entry)
+        let item = try storage.save(entry)
         history.removeAll { $0.id == entry.id }
-        history.append(entry)
+        history.append(item)
         history.sort { $0.date > $1.date }
-        while history.count > 30 {
-            let removed = history.removeLast()
-            try storage.delete(removed.id)
+    }
+
+    private func migrateThumbnails() {
+        let missing = history.filter { $0.thumbnail == nil }
+        let storage = storage
+        Task {
+            for entry in missing {
+                let data = await Task.detached(priority: .utility) { () -> Data? in
+                    do {
+                        let capture = try storage.loadCapture(entry)
+                        return try ImageRenderer.thumbnail(image: capture.image, drawing: capture.drawing, crop: capture.crop)
+                    } catch { return nil }
+                }.value
+                guard let data, let index = history.firstIndex(where: { $0.id == entry.id && $0.thumbnail == nil }) else { continue }
+                do {
+                    try storage.saveThumbnail(data, id: entry.id)
+                    history[index].thumbnail = UIImage(data: data)
+                } catch { self.error = error.localizedDescription }
+            }
         }
     }
 
-    func select(_ entry: CaptureEntry) async {
+    func select(_ entry: HistoryEntry) async {
         do {
+            let capture = try storage.loadCapture(entry)
             if let current = currentEntry() {
                 try save(current)
             }
@@ -202,12 +220,12 @@ enum Appearance: String, CaseIterable {
             revision += 1
             readyRevision = nil
             resetting = true
-            image = entry.image
-            windows = entry.windows
-            drawing = entry.drawing
-            crop = entry.crop
-            session = entry.id
-            captureDate = entry.date
+            image = capture.image
+            windows = capture.windows
+            drawing = capture.drawing
+            crop = capture.crop
+            session = capture.id
+            captureDate = capture.date
             cropUndo = []
             resetting = false
             delivered = false
@@ -216,7 +234,7 @@ enum Appearance: String, CaseIterable {
         } catch { self.error = error.localizedDescription }
     }
 
-    func deleteHistory(_ entry: CaptureEntry) {
+    func deleteHistory(_ entry: HistoryEntry) {
         do {
             try storage.delete(entry.id)
             history.removeAll { $0.id == entry.id }

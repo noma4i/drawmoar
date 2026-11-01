@@ -68,9 +68,7 @@ struct EditorView: View {
                     Task { await model.select(entry) }
                 } label: {
                     HStack {
-                        if let data = try? ImageRenderer.png(image: entry.image, drawing: entry.drawing, crop: entry.crop),
-                           let thumbnail = UIImage(data: data)
-                        {
+                        if let thumbnail = entry.thumbnail {
                             Image(uiImage: thumbnail).resizable().scaledToFit().frame(width: 80, height: 60)
                         }
                         Text(entry.date, style: .time)
@@ -112,7 +110,9 @@ struct EditorView: View {
             Button("Settings", systemImage: "gearshape") { flow.showSettings = true }
                 .labelStyle(.iconOnly)
                 .accessibilityLabel("Settings")
-            Spacer(minLength: 0)
+            Button("History", systemImage: "sidebar.left") { showHistory.toggle() }
+                .labelStyle(.iconOnly)
+            Spacer(minLength: 16)
             if cropping || selectingWindow {
                 Button("Cancel") { cropping = false; selectingWindow = false; cropDraft = nil }
                 Button("Done") {
@@ -123,8 +123,6 @@ struct EditorView: View {
                     selectingWindow = false
                 }
             } else {
-                Button("History", systemImage: "sidebar.left") { showHistory.toggle() }
-                    .labelStyle(.iconOnly)
                 Button("Crop") {
                     if let image = model.image?.cgImage {
                         let full = CGRect(x: 0, y: 0, width: image.width, height: image.height)
