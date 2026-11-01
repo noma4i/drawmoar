@@ -49,8 +49,13 @@ struct EditorView: View {
             if scenePhase == .background {
                 Task { await model.flushHistory() }
             }
-            if scenePhase == .active, !flow.busy {
-                Task { await model.activate() }
+            if scenePhase == .active {
+                Task {
+                    await model.pruneHistoryAfterSave()
+                    if !flow.busy {
+                        await model.activate()
+                    }
+                }
             }
         }
         .onChange(of: browser.macs) {

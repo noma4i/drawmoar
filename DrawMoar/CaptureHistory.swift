@@ -80,4 +80,24 @@ final class CaptureHistory {
             }
         }
     }
+
+    func size() throws -> Int64 {
+        guard files.fileExists(atPath: directory.path) else { return 0 }
+        let urls = files.enumerator(at: directory, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey])
+        var total: Int64 = 0
+        while let url = urls?.nextObject() as? URL {
+            let values = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+            if values.isRegularFile == true {
+                total += Int64(values.fileSize ?? 0)
+            }
+        }
+        return total
+    }
+
+    func deleteAll() throws {
+        guard files.fileExists(atPath: directory.path) else { return }
+        for url in try files.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
+            try files.removeItem(at: url)
+        }
+    }
 }

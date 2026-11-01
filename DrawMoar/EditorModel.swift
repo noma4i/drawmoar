@@ -16,6 +16,19 @@ enum Appearance: String, CaseIterable {
     }
 }
 
+enum Retention: String, CaseIterable {
+    case day, week, month, forever
+
+    var interval: TimeInterval? {
+        switch self {
+        case .day: 86400
+        case .week: 7 * 86400
+        case .month: 30 * 86400
+        case .forever: nil
+        }
+    }
+}
+
 @MainActor @Observable final class EditorModel {
     var image: UIImage?
     private(set) var windows: [WindowFrame] = []
@@ -23,6 +36,11 @@ enum Appearance: String, CaseIterable {
     private var captureDate = Date()
     private(set) var history: [HistoryEntry] = []
     private let storage: CaptureHistory
+    private(set) var storageSize: Int64 = 0
+    var retention: Retention {
+        didSet { defaults.set(retention.rawValue, forKey: "captureRetention") }
+    }
+
     private var cropUndo: [CGRect?] = []
     private var windowChain: [WindowFrame] = []
     private var windowDepth = 0
@@ -89,6 +107,7 @@ enum Appearance: String, CaseIterable {
         self.pairing = pairing
         self.defaults = defaults
         appearance = Appearance(rawValue: defaults.string(forKey: "appearance") ?? "") ?? .system
+        retention = Retention(rawValue: defaults.string(forKey: "captureRetention") ?? "") ?? .forever
         self.deletePairing = deletePairing
         self.delay = delay
         self.render = render
@@ -96,6 +115,7 @@ enum Appearance: String, CaseIterable {
         let savedWidth = CGFloat(defaults.double(forKey: "lineWidth"))
         lineWidth = Self.lineWidths.contains(savedWidth) ? savedWidth : Self.lineWidths[1]
         do { history = try storage.load() } catch { self.error = error.localizedDescription }
+        pruneHistory()
         migrateThumbnails()
         if let value = defaults.object(forKey: "displayId") as? Int {
             selectedDisplay = UInt32(exactly: value)
@@ -284,20 +304,54 @@ enum Appearance: String, CaseIterable {
             try storage.delete(entry.id)
             history.removeAll { $0.id == entry.id }
             if entry.id == session {
-                debounce?.cancel()
-                revision += 1
-                readyRevision = nil
-                hasPendingSend = false
-                resetting = true
-                image = nil
-                windows = []
-                drawing = PKDrawing()
-                crop = nil
-                resetting = false
-                cropUndo = []
-                delivered = false
+                clearEditor()
             }
         } catch { self.error = error.localizedDescription }
+    }
+
+    func updateStorageSize() {
+        do { storageSize = try storage.size() } catch { self.error = error.localizedDescription }
+    }
+
+    func deleteAllHistory() async {
+        guard await flushHistory() else { return }
+        do {
+            try storage.deleteAll()
+            history.removeAll()
+            clearEditor()
+            updateStorageSize()
+        } catch { self.error = error.localizedDescription }
+    }
+
+    func pruneHistoryAfterSave() async {
+        guard await flushHistory() else { return }
+        pruneHistory()
+        updateStorageSize()
+    }
+
+    private func pruneHistory(now: Date = Date()) {
+        guard let interval = retention.interval else { return }
+        for entry in history where entry.date < now.addingTimeInterval(-interval) && (image == nil || entry.id != session) {
+            do {
+                try storage.delete(entry.id)
+                history.removeAll { $0.id == entry.id }
+            } catch { self.error = error.localizedDescription }
+        }
+    }
+
+    private func clearEditor() {
+        debounce?.cancel()
+        revision += 1
+        readyRevision = nil
+        hasPendingSend = false
+        resetting = true
+        image = nil
+        windows = []
+        drawing = PKDrawing()
+        crop = nil
+        resetting = false
+        cropUndo = []
+        delivered = false
     }
 
     func applyCrop(_ rect: CGRect) {

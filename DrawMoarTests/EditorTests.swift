@@ -4,6 +4,47 @@ import PencilKit
 import XCTest
 
 @MainActor final class EditorTests: XCTestCase {
+    func testStorageSizeAndDeleteAllAfterPendingEdit() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = try EditorModel(client: FakeClient(), defaults: XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), historyDirectory: directory)
+        await model.newCapture()
+        let urls = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.fileSizeKey])
+        let expected = try urls.reduce(Int64(0)) { try $0 + Int64($1.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) }
+        model.updateStorageSize()
+        XCTAssertEqual(model.storageSize, expected)
+        model.crop = CGRect(x: 0, y: 0, width: 1, height: 1)
+        await model.deleteAllHistory()
+        await model.flushHistory()
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
+        XCTAssertTrue(model.history.isEmpty)
+        XCTAssertNil(model.image)
+        XCTAssertEqual(model.storageSize, 0)
+    }
+
+    func testRetentionKeepsCurrentAndRecentCapture() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storage = CaptureHistory(directory: directory)
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).image { _ in }
+        for (id, age) in [("current", 9), ("old", 8), ("recent", 6)] {
+            _ = try storage.save(CaptureEntry(id: id, date: Date().addingTimeInterval(-Double(age) * 86400), image: image, drawing: PKDrawing(), crop: nil, windows: []))
+        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        let model = EditorModel(client: nil, defaults: defaults, historyDirectory: directory)
+        XCTAssertEqual(model.retention, .forever)
+        await model.pruneHistoryAfterSave()
+        XCTAssertEqual(model.history.count, 3)
+        try await model.select(XCTUnwrap(model.history.first { $0.id == "current" }))
+        model.retention = .week
+        await model.pruneHistoryAfterSave()
+        XCTAssertEqual(Set(model.history.map(\.id)), Set(["current", "recent"]))
+        XCTAssertEqual(try Set(storage.load().map(\.id)), Set(["current", "recent"]))
+        let restored = EditorModel(client: nil, defaults: defaults, historyDirectory: directory)
+        XCTAssertEqual(restored.retention, .week)
+        XCTAssertEqual(restored.history.map(\.id), ["recent"])
+    }
+
     func testAppearanceDefaultsPersistsAndMapsToColorScheme() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
         let model = EditorModel(client: nil, defaults: defaults)

@@ -8,10 +8,22 @@ struct SettingsView: View {
     @Binding var changed: Bool
     @Environment(\.dismiss) private var dismiss
     @State private var pairing = false
+    @State private var confirmDelete = false
 
     var body: some View {
         NavigationStack {
             Form {
+                Section("Storage") {
+                    LabeledContent("Screenshots", value: "\(model.history.count) - \(ByteCountFormatter.string(fromByteCount: model.storageSize, countStyle: .file))")
+                    Picker("Keep screenshots", selection: $model.retention) {
+                        Text("Day").tag(Retention.day)
+                        Text("Week").tag(Retention.week)
+                        Text("Month").tag(Retention.month)
+                        Text("Forever").tag(Retention.forever)
+                    }
+                    .onChange(of: model.retention) { Task { await model.pruneHistoryAfterSave() } }
+                    Button("Delete all screenshots", role: .destructive) { confirmDelete = true }
+                }
                 Section("Appearance") {
                     Picker("Appearance", selection: $model.appearance) {
                         Text("System").tag(Appearance.system)
@@ -53,12 +65,16 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .confirmationDialog("Delete all screenshots?", isPresented: $confirmDelete) {
+                Button("Delete all screenshots", role: .destructive) { Task { await model.deleteAllHistory() } }
+            }
             .toolbar { Button("Done") { dismiss() } }
             .navigationDestination(isPresented: $pairing) {
                 PairView(paired: paired, flow: flow)
             }
         }
         .task {
+            model.updateStorageSize()
             await model.loadDisplays()
             if model.pairing == nil {
                 pairing = true
