@@ -12,6 +12,6 @@ fi
 xcodebuild -project "$root/DrawMoar.xcodeproj" -scheme DrawMoar -configuration Debug -destination "platform=iOS Simulator,id=$simulator" -derivedDataPath "$root/.build/simulator.noindex" build
 xcrun simctl boot "$simulator" 2>/dev/null || :
 xcrun simctl bootstatus "$simulator" -b
-open -a Simulator
+open -a Simulator 2>/dev/null || open -a "Device Hub" 2>/dev/null || :
 xcrun simctl install "$simulator" "$root/.build/simulator.noindex/Build/Products/Debug-iphonesimulator/DrawMoar.app"
 xcrun simctl launch "$simulator" "$DRAWMOAR_BUNDLE_ID"
