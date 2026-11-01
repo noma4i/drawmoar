@@ -107,6 +107,7 @@ struct Mac: Identifiable, Hashable {
             routes.remove(at: index)
             routes.insert(last, at: 0)
         }
+        var failures: [String] = []
         for route in routes {
             do {
                 let result = try await connector(route)
@@ -114,8 +115,22 @@ struct Mac: Identifiable, Hashable {
                 return result
             } catch is CancellationError {
                 throw CancellationError()
-            } catch {}
+            } catch {
+                let label: String
+                if case let .hostPort(host, _) = route {
+                    label = "\(host)"
+                } else {
+                    label = "Local network"
+                }
+                let description: String
+                if case CompanionConnectionError.timedOut = error {
+                    description = "timed out"
+                } else {
+                    description = error.localizedDescription
+                }
+                failures.append("\(label): \(description.prefix(80))")
+            }
         }
-        throw MacError.unavailable
+        throw MacError.unavailable(failures)
     }
 }

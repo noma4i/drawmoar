@@ -11,10 +11,10 @@ protocol MacCapturing {
 }
 
 enum MacError: LocalizedError {
-    case unavailable, disconnected, unexpected, expiredInvite, invalidInvite, remote(String)
+    case unavailable([String]), disconnected, unexpected, expiredInvite, invalidInvite, remote(String)
     var errorDescription: String? {
         switch self {
-        case .unavailable: "Mac not reachable on the local network or Tailscale"
+        case let .unavailable(failures): "Mac not reachable. " + failures.joined(separator: "; ")
         case .disconnected: "Connection closed"
         case .unexpected: "Unexpected response from Mac"
         case .expiredInvite: "Pairing link expired. Open Pair device on your Mac and try again."

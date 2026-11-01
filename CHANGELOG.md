@@ -6,6 +6,7 @@
 - Tailscale connections and a Remote address setting
 
 ### Fixed
+- Connection errors show the cause for each route
 - Mac not found immediately after launch or return
 - Connection attempts no longer hang
 

@@ -42,11 +42,12 @@ import XCTest
         do {
             let _: String = try await browser.connect(name: "Other", hosts: [], port: nil) { endpoint in
                 attempted.append(endpoint)
-                throw MacError.disconnected
+                throw MacError.remote(endpoint == address ? "host failed" : "service failed")
             }
             XCTFail("Expected unreachable error")
         } catch {
-            XCTAssertEqual(error.localizedDescription, "Mac not reachable on the local network or Tailscale")
+            XCTAssertTrue(error.localizedDescription.contains("Local network: service failed"))
+            XCTAssertTrue(error.localizedDescription.contains("example.ts.net: host failed"))
         }
         XCTAssertEqual(attempted, [.service(name: "Other", type: bonjourServiceType, domain: "local.", interface: nil), address])
     }
@@ -99,7 +100,7 @@ import XCTest
         var fails = false
         let flow = PairingFlow(deviceId: { "device" }, connect: { invite, id in
             if fails {
-                throw MacError.unavailable
+                throw MacError.unavailable([])
             }
             return Pairing(deviceId: id, key: Data([1]), macName: invite.macName)
         }, save: { _ in })
