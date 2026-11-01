@@ -4,3 +4,4 @@ DerivedData/
 .orca-artifacts/
 .DS_Store
 xcuserdata/
+scripts/local.env

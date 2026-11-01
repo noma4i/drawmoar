@@ -4,19 +4,20 @@ options:
     iOS: '17.0'
 packages:
   CompanionKit:
-    path: ${CLIPMOAR_DIR}/CompanionKit
+    path: CompanionKit
 targets:
   DrawMoar:
     type: application
     platform: iOS
     sources:
       - path: DrawMoar
-        excludes: [Assets.xcassets]
+        excludes: [Assets.xcassets, Info.plist]
       - path: DrawMoar/Assets.xcassets
         buildPhase: resources
     info:
-      path: DrawMoar/Info.plist
+      path: .build/DrawMoar-Info.plist
       properties:
+        CFBundleShortVersionString: 1.0.0
         NSLocalNetworkUsageDescription: Connect to ClipMoar on your Mac.
         NSCameraUsageDescription: Scan the pairing code shown on your Mac.
         CFBundleURLTypes:
@@ -28,8 +29,8 @@ targets:
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        PRODUCT_BUNDLE_IDENTIFIER: com.noma4i.DrawMoar
-        DEVELOPMENT_TEAM: 89QF7X66FR
+        PRODUCT_BUNDLE_IDENTIFIER: ${DRAWMOAR_BUNDLE_ID}
+        DEVELOPMENT_TEAM: ${DRAWMOAR_TEAM_ID}
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: '1,2'
   DrawMoarTests:
@@ -41,8 +42,8 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        PRODUCT_BUNDLE_IDENTIFIER: com.noma4i.DrawMoarTests
-        DEVELOPMENT_TEAM: 89QF7X66FR
+        PRODUCT_BUNDLE_IDENTIFIER: ${DRAWMOAR_BUNDLE_ID}.Tests
+        DEVELOPMENT_TEAM: ${DRAWMOAR_TEAM_ID}
         CODE_SIGN_STYLE: Automatic
 schemes:
   DrawMoar:
