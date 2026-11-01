@@ -60,12 +60,21 @@ enum MacError: LocalizedError {
     }
 
     func paste(_ data: Data, session: String) async throws {
-        guard case .ok = try await request(.paste(png: data, session: session)) else { throw MacError.unexpected }
+        guard let mac = browser.macs.first(where: { $0.name == pairing.macName }) else { throw MacError.unavailable }
+        let endpoint = mac.endpoint
+        let pairing = pairing
+        guard case .ok = try await Task.detached(priority: .utility, operation: {
+            try await Self.request(.paste(png: data, session: session), endpoint: endpoint, pairing: pairing)
+        }).value else { throw MacError.unexpected }
     }
 
     private func request(_ message: Message) async throws -> Message {
         guard let mac = browser.macs.first(where: { $0.name == pairing.macName }) else { throw MacError.unavailable }
-        let connection = CompanionConnection(NWConnection(to: mac.endpoint, using: CompanionTLS.clientParameters(identity: pairing.deviceId, key: SymmetricKey(data: pairing.key))))
+        return try await Self.request(message, endpoint: mac.endpoint, pairing: pairing)
+    }
+
+    private nonisolated static func request(_ message: Message, endpoint: NWEndpoint, pairing: Pairing) async throws -> Message {
+        let connection = CompanionConnection(NWConnection(to: endpoint, using: CompanionTLS.clientParameters(identity: pairing.deviceId, key: SymmetricKey(data: pairing.key))))
         defer { connection.connection.cancel() }
         var iterator = connection.messages.makeAsyncIterator()
         try await connection.send(.hello(deviceId: pairing.deviceId))

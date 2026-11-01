@@ -65,18 +65,24 @@ enum Appearance: String, CaseIterable {
     private(set) var delivered = false
     private(set) var lineWidth: CGFloat
     static let lineWidths: [CGFloat] = [4, 8, 16, 32]
-    var copied = 0
     var client: (any MacCapturing)?
     var pairing: Pairing?
     private let defaults: UserDefaults
     private let deletePairing: () throws -> Void
     private let delay: () async throws -> Void
+    private let render: (UIImage, PKDrawing, CGRect?) throws -> Data
+    private let saveCapture: (CaptureHistory, CaptureEntry) throws -> HistoryEntry
     private var debounce: Task<Void, Never>?
     private var revision = 0
     private var readyRevision: Int?
     private var resetting = false
+    private var usingTool = false
+    private var hasPendingSend = false
+    private var pendingSave: CaptureEntry?
+    private var saveTask: Task<Void, Never>?
+    private var historySaveFailed = false
 
-    init(client: (any MacCapturing)?, pairing: Pairing? = nil, defaults: UserDefaults = .standard, deletePairing: @escaping () throws -> Void = PairingStore.delete, delay: @escaping () async throws -> Void = { try await Task.sleep(for: .milliseconds(500)) }, historyDirectory: URL? = nil) {
+    init(client: (any MacCapturing)?, pairing: Pairing? = nil, defaults: UserDefaults = .standard, deletePairing: @escaping () throws -> Void = PairingStore.delete, delay: @escaping () async throws -> Void = { try await Task.sleep(for: .milliseconds(2500)) }, render: @escaping (UIImage, PKDrawing, CGRect?) throws -> Data = ImageRenderer.png, saveCapture: @escaping (CaptureHistory, CaptureEntry) throws -> HistoryEntry = { try $0.save($1) }, historyDirectory: URL? = nil) {
         let directory = historyDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Captures", isDirectory: true)
         storage = CaptureHistory(directory: directory)
         self.client = client
@@ -85,6 +91,8 @@ enum Appearance: String, CaseIterable {
         appearance = Appearance(rawValue: defaults.string(forKey: "appearance") ?? "") ?? .system
         self.deletePairing = deletePairing
         self.delay = delay
+        self.render = render
+        self.saveCapture = saveCapture
         let savedWidth = CGFloat(defaults.double(forKey: "lineWidth"))
         lineWidth = Self.lineWidths.contains(savedWidth) ? savedWidth : Self.lineWidths[1]
         do { history = try storage.load() } catch { self.error = error.localizedDescription }
@@ -143,6 +151,7 @@ enum Appearance: String, CaseIterable {
         busy = true
         defer { busy = false }
         do {
+            guard await flushHistory() else { return }
             if selectedDisplay != nil {
                 displays = try await client.displays()
                 if !displays.contains(where: { $0.id == selectedDisplay }) {
@@ -152,7 +161,8 @@ enum Appearance: String, CaseIterable {
             let capture = try await client.capture(displayId: selectedDisplay)
             guard let image = UIImage(data: capture.png) else { throw MacError.unexpected }
             if let current = currentEntry() {
-                try save(current)
+                queueSave(current)
+                guard await flushHistory() else { return }
             }
             resetting = true
             self.image = image
@@ -163,10 +173,12 @@ enum Appearance: String, CaseIterable {
             session = UUID().uuidString
             captureDate = Date()
             cropUndo = []
-            try save(currentEntry()!)
+            queueSave(currentEntry()!)
+            _ = await flushHistory()
             revision += 1
             debounce?.cancel()
             readyRevision = nil
+            hasPendingSend = false
             delivered = false
             sendError = nil
             error = nil
@@ -183,11 +195,39 @@ enum Appearance: String, CaseIterable {
         return CaptureEntry(id: session, date: captureDate, image: image, drawing: drawing, crop: crop, windows: windows)
     }
 
-    private func save(_ entry: CaptureEntry) throws {
-        let item = try storage.save(entry)
-        history.removeAll { $0.id == entry.id }
-        history.append(item)
-        history.sort { $0.date > $1.date }
+    private func queueSave(_ entry: CaptureEntry) {
+        pendingSave = entry
+        guard saveTask == nil else { return }
+        historySaveFailed = false
+        saveTask = Task {
+            while let entry = pendingSave {
+                pendingSave = nil
+                let storage = storage
+                let saveCapture = saveCapture
+                do {
+                    let item = try await Task.detached(priority: .utility) { try saveCapture(storage, entry) }.value
+                    history.removeAll { $0.id == entry.id }
+                    history.append(item)
+                    history.sort { $0.date > $1.date }
+                } catch {
+                    historySaveFailed = true
+                    self.error = error.localizedDescription
+                    pendingSave = pendingSave ?? entry
+                    break
+                }
+            }
+            saveTask = nil
+        }
+    }
+
+    @discardableResult func flushHistory() async -> Bool {
+        if historySaveFailed, let entry = pendingSave {
+            queueSave(entry)
+        }
+        while let task = saveTask {
+            await task.value
+        }
+        return !historySaveFailed
     }
 
     private func migrateThumbnails() {
@@ -212,13 +252,16 @@ enum Appearance: String, CaseIterable {
 
     func select(_ entry: HistoryEntry) async {
         do {
+            guard await flushHistory() else { return }
             let capture = try storage.loadCapture(entry)
             if let current = currentEntry() {
-                try save(current)
+                queueSave(current)
+                guard await flushHistory() else { return }
             }
             debounce?.cancel()
             revision += 1
             readyRevision = nil
+            hasPendingSend = false
             resetting = true
             image = capture.image
             windows = capture.windows
@@ -229,12 +272,14 @@ enum Appearance: String, CaseIterable {
             cropUndo = []
             resetting = false
             delivered = false
+            hasPendingSend = true
             readyRevision = revision
             await sendIfReady()
         } catch { self.error = error.localizedDescription }
     }
 
-    func deleteHistory(_ entry: HistoryEntry) {
+    func deleteHistory(_ entry: HistoryEntry) async {
+        guard await flushHistory() else { return }
         do {
             try storage.delete(entry.id)
             history.removeAll { $0.id == entry.id }
@@ -242,6 +287,7 @@ enum Appearance: String, CaseIterable {
                 debounce?.cancel()
                 revision += 1
                 readyRevision = nil
+                hasPendingSend = false
                 resetting = true
                 image = nil
                 windows = []
@@ -309,31 +355,52 @@ enum Appearance: String, CaseIterable {
     private func edited() {
         guard !resetting, image != nil else { return }
         if let current = currentEntry() {
-            do { try save(current) } catch { self.error = error.localizedDescription }
+            queueSave(current)
         }
         revision += 1
-        let next = revision
+        hasPendingSend = true
         delivered = false
         sendError = nil
         readyRevision = nil
+        scheduleSend()
+    }
+
+    func setUsingTool(_ active: Bool) {
+        usingTool = active
+        if active {
+            debounce?.cancel()
+            readyRevision = nil
+        } else if hasPendingSend, image != nil {
+            scheduleSend()
+        }
+    }
+
+    private func scheduleSend() {
         debounce?.cancel()
+        guard !usingTool else { return }
+        let next = revision
         debounce = Task {
             do { try await delay() } catch { return }
-            guard !Task.isCancelled, revision == next else { return }
+            guard !Task.isCancelled, !usingTool, revision == next else { return }
             readyRevision = next
             Task { await sendIfReady() }
         }
     }
 
     private func sendIfReady() async {
-        guard !sending, let current = readyRevision, let image, let client else { return }
+        guard !sending, !usingTool, let current = readyRevision, let image, let client else { return }
         readyRevision = nil
+        hasPendingSend = false
         let currentSession = session
+        let drawing = drawing
+        let crop = crop
+        let render = render
         sending = true
         do {
-            let data = try ImageRenderer.png(image: image, drawing: drawing, crop: crop)
+            let data = try await Task.detached(priority: .utility) {
+                try render(image, drawing, crop)
+            }.value
             try await client.paste(data, session: currentSession)
-            copied += 1
             if revision == current {
                 delivered = true; sendError = nil
             }

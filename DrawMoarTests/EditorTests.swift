@@ -133,6 +133,9 @@ import XCTest
         let clock = TestDelay()
         let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
         let model = EditorModel(client: client, defaults: defaults, delay: { try await clock.wait() })
+        let firstSend = expectation(description: "first send")
+        let secondSend = expectation(description: "second send")
+        client.onPaste = { client.sessions.count == 1 ? firstSend.fulfill() : secondSend.fulfill() }
         await model.activate()
         XCTAssertTrue(client.sessions.isEmpty)
         model.crop = CGRect(x: 0, y: 0, width: 1, height: 1)
@@ -142,7 +145,7 @@ import XCTest
         model.crop = CGRect(x: 0, y: 0, width: 2, height: 2)
         await Task.yield()
         clock.advance()
-        await clock.settle()
+        await fulfillment(of: [firstSend], timeout: 5)
         XCTAssertEqual(client.sessions.count, 1)
         XCTAssertEqual(try UIImage(data: XCTUnwrap(client.images.first))?.size, CGSize(width: 2, height: 2))
         await model.newCapture()
@@ -151,7 +154,7 @@ import XCTest
         model.crop = CGRect(x: 0, y: 0, width: 1, height: 1)
         await Task.yield()
         clock.advance()
-        await clock.settle()
+        await fulfillment(of: [secondSend], timeout: 5)
         XCTAssertEqual(client.sessions.count, 2)
         guard client.sessions.count == 2 else { return }
         XCTAssertNotEqual(client.sessions[0], client.sessions[1])
@@ -162,11 +165,14 @@ import XCTest
         client.holdPaste = true
         let clock = TestDelay()
         let model = try EditorModel(client: client, defaults: XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), delay: { try await clock.wait() })
+        let firstSend = expectation(description: "first send")
+        let secondSend = expectation(description: "second send")
+        client.onPaste = { client.sessions.count == 1 ? firstSend.fulfill() : secondSend.fulfill() }
         await model.activate()
         model.crop = CGRect(x: 0, y: 0, width: 1, height: 1)
         await Task.yield()
         clock.advance()
-        await clock.settle()
+        await fulfillment(of: [firstSend], timeout: 5)
         XCTAssertEqual(client.sessions.count, 1)
         model.crop = CGRect(x: 0, y: 0, width: 2, height: 2)
         await Task.yield()
@@ -174,10 +180,74 @@ import XCTest
         await clock.settle()
         XCTAssertEqual(client.sessions.count, 1)
         client.finishPaste()
-        await clock.settle()
+        await fulfillment(of: [secondSend], timeout: 5)
         XCTAssertEqual(client.sessions.count, 2)
         XCTAssertEqual(client.sessions.first, client.sessions.last)
+        XCTAssertEqual(try UIImage(data: XCTUnwrap(client.images.last))?.size, CGSize(width: 2, height: 2))
         client.finishPaste()
+    }
+
+    func testDrawingDefersSendAndRendersOffMainThread() async throws {
+        let client = FakeClient()
+        let clock = TestDelay()
+        let sent = expectation(description: "sent")
+        client.onPaste = { sent.fulfill() }
+        let model = try EditorModel(client: client, defaults: XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), delay: { try await clock.wait() }, render: { image, drawing, crop in
+            XCTAssertFalse(Thread.isMainThread)
+            return try ImageRenderer.png(image: image, drawing: drawing, crop: crop)
+        })
+        await model.activate()
+        model.setUsingTool(true)
+        model.crop = CGRect(x: 0, y: 0, width: 1, height: 1)
+        await Task.yield()
+        clock.advance()
+        await clock.settle()
+        XCTAssertTrue(client.sessions.isEmpty)
+        model.setUsingTool(false)
+        await Task.yield()
+        clock.advance()
+        await fulfillment(of: [sent], timeout: 5)
+        XCTAssertEqual(client.sessions.count, 1)
+    }
+
+    func testHistorySavesLatestEditOffMainThread() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = try EditorModel(client: FakeClient(), defaults: XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), saveCapture: { storage, entry in
+            XCTAssertFalse(Thread.isMainThread)
+            return try storage.save(entry)
+        }, historyDirectory: directory)
+        await model.newCapture()
+        model.crop = CGRect(x: 0, y: 0, width: 1, height: 1)
+        model.crop = CGRect(x: 0, y: 0, width: 2, height: 2)
+        await model.flushHistory()
+        let storage = CaptureHistory(directory: directory)
+        let entry = try XCTUnwrap(storage.load().first)
+        XCTAssertEqual(try storage.loadCapture(entry).crop, CGRect(x: 0, y: 0, width: 2, height: 2))
+    }
+
+    func testFailedHistorySaveKeepsCaptureAndRetries() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let writes = HistoryWrites()
+        let model = try EditorModel(client: FakeClient(), defaults: XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), saveCapture: { storage, entry in
+            try writes.save(storage, entry)
+        }, historyDirectory: directory)
+        await model.newCapture()
+        let original = try XCTUnwrap(model.image)
+        let id = try XCTUnwrap(model.history.first?.id)
+        writes.setFailure(true)
+        model.crop = CGRect(x: 0, y: 0, width: 1, height: 1)
+        await model.newCapture()
+        XCTAssertTrue(model.image === original)
+        XCTAssertEqual(model.crop, CGRect(x: 0, y: 0, width: 1, height: 1))
+        XCTAssertNotNil(model.error)
+        writes.setFailure(false)
+        await model.newCapture()
+        XCTAssertFalse(model.image === original)
+        let storage = CaptureHistory(directory: directory)
+        let saved = try XCTUnwrap(storage.load().first { $0.id == id })
+        XCTAssertEqual(try storage.loadCapture(saved).crop, CGRect(x: 0, y: 0, width: 1, height: 1))
     }
 
     func testSelectedDisplayIsPersistedAndMissingDisplayFallsBackToAuto() async throws {
@@ -233,7 +303,7 @@ import XCTest
         XCTAssertEqual(client.sessions, [first.id])
         let expected = try ImageRenderer.png(image: XCTUnwrap(restored.image), drawing: restored.drawing, crop: restored.crop)
         XCTAssertEqual(client.images, [expected])
-        restored.deleteHistory(saved)
+        await restored.deleteHistory(saved)
         XCTAssertNil(restored.image)
         XCTAssertFalse(restored.history.contains { $0.id == saved.id })
         let reloaded = EditorModel(client: nil, defaults: defaults, historyDirectory: directory)
@@ -277,8 +347,8 @@ import XCTest
         let current = try XCTUnwrap(model.history.first)
         model.crop = CGRect(x: 0, y: 0, width: 1, height: 1)
         await Task.yield()
-        model.deleteHistory(other)
-        model.deleteHistory(current)
+        await model.deleteHistory(other)
+        await model.deleteHistory(current)
         clock.advance()
         await clock.settle()
         XCTAssertNil(model.image)
@@ -348,6 +418,7 @@ import XCTest
         XCTAssertNil(model.crop)
         model.resetWindowSelection()
         XCTAssertEqual(model.selectWindow(at: point, confirm: true), front)
+        await model.flushHistory()
         let restored = EditorModel(client: nil, defaults: defaults, historyDirectory: directory)
         let entry = try XCTUnwrap(restored.history.first)
         XCTAssertEqual(entry.windows, client.windows)
@@ -360,6 +431,27 @@ import XCTest
         let context = CGContext(data: &bytes, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         return bytes[(y * image.width + x) * 4]
+    }
+}
+
+private final class HistoryWrites {
+    private let lock = NSLock()
+    private var fail = false
+
+    func setFailure(_ value: Bool) {
+        lock.lock()
+        fail = value
+        lock.unlock()
+    }
+
+    func save(_ storage: CaptureHistory, _ entry: CaptureEntry) throws -> HistoryEntry {
+        lock.lock()
+        let failed = fail
+        lock.unlock()
+        if failed {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        return try storage.save(entry)
     }
 }
 
@@ -384,6 +476,7 @@ import XCTest
     var holdPaste = false
     var pendingPaste: CheckedContinuation<Void, Never>?
     var windows: [WindowFrame] = []
+    var onPaste: (() -> Void)?
     func capture(displayId: UInt32?) async throws -> (png: Data, windows: [WindowFrame]) {
         captures += 1
         displayRequests.append(displayId)
@@ -402,6 +495,7 @@ import XCTest
     func paste(_ data: Data, session: String) async throws {
         sessions.append(session)
         images.append(data)
+        onPaste?()
         if holdPaste {
             await withCheckedContinuation { pendingPaste = $0 }
         }

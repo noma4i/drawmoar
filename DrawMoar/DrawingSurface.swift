@@ -13,6 +13,7 @@ struct DrawingSurface: UIViewRepresentable {
     let selectWindow: (CGPoint, Bool) -> Void
     let canvas: PKCanvasView
     let lineWidth: CGFloat
+    let setUsingTool: (Bool) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -114,6 +115,14 @@ struct DrawingSurface: UIViewRepresentable {
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             parent.drawing = canvasView.drawing
+        }
+
+        func canvasViewDidBeginUsingTool(_: PKCanvasView) {
+            parent.setUsingTool(true)
+        }
+
+        func canvasViewDidEndUsingTool(_: PKCanvasView) {
+            parent.setUsingTool(false)
         }
 
         func applyWidth() {

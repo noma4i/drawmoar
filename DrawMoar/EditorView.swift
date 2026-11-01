@@ -23,7 +23,6 @@ struct EditorView: View {
             }
             editor
         }
-        .sensoryFeedback(.success, trigger: model.copied)
         .task {
             UIApplication.shared.isIdleTimerDisabled = scenePhase == .active
             if model.pairing == nil {
@@ -47,6 +46,9 @@ struct EditorView: View {
         }
         .onChange(of: scenePhase) {
             UIApplication.shared.isIdleTimerDisabled = scenePhase == .active
+            if scenePhase == .background {
+                Task { await model.flushHistory() }
+            }
             if scenePhase == .active, !flow.busy {
                 Task { await model.activate() }
             }
@@ -74,7 +76,7 @@ struct EditorView: View {
                         Text(entry.date, style: .time)
                     }
                 }
-                .swipeActions { Button("Delete", role: .destructive) { model.deleteHistory(entry) } }
+                .swipeActions { Button("Delete", role: .destructive) { Task { await model.deleteHistory(entry) } } }
             }
         }
     }
@@ -92,7 +94,7 @@ struct EditorView: View {
                     if confirm, cropDraft != nil {
                         selectingWindow = false
                     }
-                }, canvas: canvas, lineWidth: model.lineWidth)
+                }, canvas: canvas, lineWidth: model.lineWidth, setUsingTool: model.setUsingTool)
             } else {
                 Spacer()
                 if model.busy {
