@@ -4,6 +4,30 @@ import PencilKit
 import XCTest
 
 @MainActor final class EditorTests: XCTestCase {
+    func testFitCentersCropAndNewImageResetsZoom() {
+        let area = CGSize(width: 402, height: 500)
+        let crop = CGRect(x: 2500, y: 1400, width: 1000, height: 500)
+        let fit = ImageScrollView.fit(area: area, visible: crop)
+        XCTAssertEqual(fit.zoomScale, 0.402, accuracy: 0.0001)
+        XCTAssertEqual(fit.contentOffset.x, 1005, accuracy: 0.001)
+        XCTAssertEqual(fit.contentOffset.y, 413.3, accuracy: 0.001)
+
+        let scroll = ImageScrollView(frame: CGRect(origin: .zero, size: area))
+        let content = UIView(frame: CGRect(origin: .zero, size: crop.size))
+        scroll.addSubview(content)
+        let delegate = ZoomDelegate(content: content)
+        scroll.delegate = delegate
+        let first = UIImage()
+        let second = UIImage()
+        XCTAssertTrue(scroll.prepareImage(first, visible: crop, imageSize: crop.size))
+        scroll.fitImage()
+        scroll.zoomScale = 1
+        XCTAssertTrue(scroll.prepareImage(second, visible: crop, imageSize: crop.size))
+        scroll.fitImage()
+        XCTAssertEqual(scroll.zoomScale, 0.402, accuracy: 0.0001)
+        XCTAssertEqual(scroll.contentOffset.y, -149.5, accuracy: 0.5)
+    }
+
     func testLineWidthPersistsAndPreservesInk() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
         let model = EditorModel(client: nil, defaults: defaults)
@@ -229,6 +253,18 @@ import XCTest
         let context = CGContext(data: &bytes, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         return bytes[(y * image.width + x) * 4]
+    }
+}
+
+@MainActor private final class ZoomDelegate: NSObject, UIScrollViewDelegate {
+    let content: UIView
+
+    init(content: UIView) {
+        self.content = content
+    }
+
+    func viewForZooming(in _: UIScrollView) -> UIView? {
+        content
     }
 }
 

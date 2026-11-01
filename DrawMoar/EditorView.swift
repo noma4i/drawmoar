@@ -119,7 +119,8 @@ struct EditorView: View {
                     .labelStyle(.iconOnly)
                 Button("Crop") {
                     if let image = model.image?.cgImage {
-                        cropDraft = model.crop ?? CGRect(x: 0, y: 0, width: image.width, height: image.height)
+                        let full = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+                        cropDraft = model.crop ?? full.insetBy(dx: full.width * 0.08, dy: full.height * 0.08)
                         cropping = true
                     }
                 }

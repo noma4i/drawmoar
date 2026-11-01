@@ -57,17 +57,12 @@ struct DrawingSurface: UIViewRepresentable {
         let scale = EditorModel.canvasScale(for: CGSize(width: cgImage.width, height: cgImage.height))
         let size = CGSize(width: CGFloat(cgImage.width) * scale, height: CGFloat(cgImage.height) * scale)
         let visible = cropping ? CGRect(origin: .zero, size: size) : (appliedCrop?.applying(CGAffineTransform(scaleX: scale, y: scale)) ?? CGRect(origin: .zero, size: size))
-        if content.bounds.size != visible.size || imageView.frame.origin != CGPoint(x: -visible.minX, y: -visible.minY) {
+        if let scroll = scroll as? ImageScrollView, scroll.prepareImage(image, visible: visible, imageSize: size) {
             content.frame = CGRect(origin: .zero, size: visible.size)
             imageView.frame = CGRect(origin: CGPoint(x: -visible.minX, y: -visible.minY), size: size)
             canvas.frame = imageView.frame
             overlay.frame = imageView.frame
-            scroll.contentSize = visible.size
-            let fit = min(scroll.bounds.width / visible.width, scroll.bounds.height / visible.height)
-            if fit > 0 {
-                scroll.minimumZoomScale = fit
-                scroll.zoomScale = fit
-            }
+            scroll.fitImage()
         }
         imageView.image = image
         if canvas.drawing != drawing {
@@ -93,6 +88,10 @@ struct DrawingSurface: UIViewRepresentable {
 
         func viewForZooming(in scrollView: UIScrollView) -> UIView? {
             scrollView.viewWithTag(1)
+        }
+
+        func scrollViewDidZoom(_ scrollView: UIScrollView) {
+            scrollView.viewWithTag(3)?.setNeedsDisplay()
         }
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
@@ -150,12 +149,28 @@ final class CropOverlay: UIView {
         context.addRect(bounds)
         context.addRect(rect)
         context.drawPath(using: .eoFill)
+        let zoom = (superview?.superview as? UIScrollView)?.zoomScale ?? 1
+        let unit = 1 / max(zoom, 0.01)
+        context.setShadow(offset: .zero, blur: 2 * unit, color: UIColor.black.cgColor)
         context.setStrokeColor(UIColor.white.cgColor)
-        context.setLineWidth(3)
+        context.setLineWidth(1.5 * unit)
         context.stroke(rect)
-        context.setFillColor(UIColor.white.cgColor)
-        for point in corners(rect) {
-            context.fillEllipse(in: CGRect(x: point.x - 10, y: point.y - 10, width: 20, height: 20))
+        context.setShadow(offset: .zero, blur: 0, color: nil)
+        for (index, point) in corners(rect).enumerated() {
+            let dx: CGFloat = index % 2 == 0 ? 1 : -1
+            let dy: CGFloat = index < 2 ? 1 : -1
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: point.x + dx * 24 * unit, y: point.y))
+            path.addLine(to: point)
+            path.addLine(to: CGPoint(x: point.x, y: point.y + dy * 24 * unit))
+            context.addPath(path)
+            context.setStrokeColor(UIColor.black.cgColor)
+            context.setLineWidth(6 * unit)
+            context.strokePath()
+            context.addPath(path)
+            context.setStrokeColor(UIColor.white.cgColor)
+            context.setLineWidth(4 * unit)
+            context.strokePath()
         }
     }
 
@@ -198,15 +213,43 @@ final class CropOverlay: UIView {
 }
 
 final class ImageScrollView: UIScrollView {
-    private var fittedSize = CGSize.zero
+    private var image: UIImage?
+    private var visible = CGRect.zero
+    private var imageSize = CGSize.zero
+    private var fittedBounds = CGSize.zero
+
+    static func fit(area: CGSize, visible: CGRect) -> (zoomScale: CGFloat, contentOffset: CGPoint) {
+        let zoom = min(area.width / visible.width, area.height / visible.height)
+        return (zoom, CGPoint(x: visible.minX * zoom - (area.width - visible.width * zoom) / 2,
+                              y: visible.minY * zoom - (area.height - visible.height * zoom) / 2))
+    }
+
+    func prepareImage(_ image: UIImage, visible: CGRect, imageSize: CGSize) -> Bool {
+        guard self.image !== image || self.visible != visible || self.imageSize != imageSize else { return false }
+        self.image = image
+        self.visible = visible
+        self.imageSize = imageSize
+        minimumZoomScale = min(minimumZoomScale, 1)
+        zoomScale = 1
+        return true
+    }
+
+    func fitImage() {
+        guard visible.width > 0, visible.height > 0, bounds.width > 0, bounds.height > 0 else { return }
+        fittedBounds = bounds.size
+        let fit = Self.fit(area: bounds.size, visible: CGRect(origin: .zero, size: visible.size))
+        maximumZoomScale = max(4, fit.zoomScale)
+        minimumZoomScale = fit.zoomScale
+        zoomScale = fit.zoomScale
+        contentSize = CGSize(width: visible.width * fit.zoomScale, height: visible.height * fit.zoomScale)
+        contentInset = UIEdgeInsets(top: max(0, -fit.contentOffset.y), left: max(0, -fit.contentOffset.x), bottom: max(0, -fit.contentOffset.y), right: max(0, -fit.contentOffset.x))
+        contentOffset = fit.contentOffset
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
-        guard let content = viewWithTag(1), content.bounds.width > 0, content.bounds.height > 0, bounds.width > 0, bounds.height > 0 else { return }
-        if fittedSize != content.bounds.size {
-            fittedSize = content.bounds.size
-            let fit = min(bounds.width / fittedSize.width, bounds.height / fittedSize.height)
-            minimumZoomScale = fit
-            zoomScale = fit
+        if fittedBounds != bounds.size {
+            fitImage()
         }
     }
 }
