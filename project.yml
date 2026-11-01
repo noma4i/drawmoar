@@ -1,0 +1,46 @@
+name: DrawMoar
+options:
+  deploymentTarget:
+    iOS: '17.0'
+packages:
+  CompanionKit:
+    path: ${CLIPMOAR_DIR}/CompanionKit
+targets:
+  DrawMoar:
+    type: application
+    platform: iOS
+    sources: [DrawMoar]
+    info:
+      path: DrawMoar/Info.plist
+      properties:
+        NSLocalNetworkUsageDescription: Connect to ClipMoar on your Mac.
+        NSBonjourServices: ["_clipmoar._tcp"]
+        UILaunchScreen: {}
+    dependencies:
+      - package: CompanionKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.noma4i.DrawMoar
+        DEVELOPMENT_TEAM: 7538B6Y8M3
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: '1,2'
+  DrawMoarTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [DrawMoarTests]
+    dependencies:
+      - target: DrawMoar
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.noma4i.DrawMoarTests
+        DEVELOPMENT_TEAM: 7538B6Y8M3
+        CODE_SIGN_STYLE: Automatic
+schemes:
+  DrawMoar:
+    build:
+      targets:
+        DrawMoar: all
+        DrawMoarTests: [test]
+    test:
+      targets: [DrawMoarTests]
