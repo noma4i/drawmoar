@@ -5,6 +5,7 @@ struct EditorView: View {
     @Bindable var model: EditorModel
     let browser: MacBrowser
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var cropping = false
     @State private var showCopied = false
     @State private var canvas = PKCanvasView()
@@ -13,25 +14,16 @@ struct EditorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView(.horizontal) {
-                HStack {
-                    Button("Refresh", systemImage: "arrow.clockwise") { Task { await model.refresh() } }
-                    Button("Crop", systemImage: "crop") {
-                        cropping.toggle()
-                        if cropping, model.crop == nil, let image = model.image?.cgImage {
-                            model.crop = CGRect(x: 0, y: 0, width: image.width, height: image.height)
-                        }
-                    }
-                    Button("Undo", systemImage: "arrow.uturn.backward") { canvas.undoManager?.undo() }
-                    Button("New", systemImage: "plus") { cropping = false; Task { await model.newCapture() } }
-                    Button("Copy to Mac", systemImage: "doc.on.doc") { Task { await model.copy() } }
-                        .disabled(model.image == nil || model.busy)
-                    Button("Settings", systemImage: "gearshape") { showSettings = true }
-                        .labelStyle(.iconOnly)
-                }.padding(8)
+            Group {
+                if horizontalSizeClass == .compact {
+                    toolbarButtons.labelStyle(.iconOnly)
+                } else {
+                    toolbarButtons.labelStyle(.titleAndIcon)
+                }
             }
+            .padding(8)
             if let error = model.error {
-                Text(error).foregroundStyle(.red).padding(4)
+                Text(error).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true).padding(4)
             }
             if let image = model.image {
                 DrawingSurface(image: image, drawing: $model.drawing, crop: $model.crop, cropping: cropping, canvas: canvas)
@@ -47,7 +39,8 @@ struct EditorView: View {
         }
         .overlay(alignment: .bottom) {
             if showCopied {
-                Text("Copied on Mac").padding().background(.regularMaterial, in: Capsule()).padding()
+                Text("Copied on Mac").fixedSize(horizontal: false, vertical: true)
+                    .padding().background(.regularMaterial, in: Capsule()).padding()
             }
         }
         .sensoryFeedback(.success, trigger: model.copied)
@@ -79,6 +72,31 @@ struct EditorView: View {
             if model.image == nil {
                 Task { await model.activate() }
             }
+        }
+    }
+
+    private var toolbarButtons: some View {
+        HStack {
+            Button("Settings", systemImage: "gearshape") { showSettings = true }
+                .accessibilityLabel("Settings")
+            Button("Refresh", systemImage: "arrow.clockwise") { Task { await model.refresh() } }
+                .accessibilityLabel("Refresh")
+            Button("Crop", systemImage: "crop") {
+                cropping.toggle()
+                if cropping, model.crop == nil, let image = model.image?.cgImage {
+                    model.crop = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+                }
+            }
+            .accessibilityLabel("Crop")
+            Button("Undo", systemImage: "arrow.uturn.backward") { canvas.undoManager?.undo() }
+                .accessibilityLabel("Undo")
+            Button("New", systemImage: "plus") { cropping = false; Task { await model.newCapture() } }
+                .accessibilityLabel("New")
+            Spacer(minLength: 0)
+            Button("Copy to Mac", systemImage: "doc.on.doc") { Task { await model.copy() } }
+                .buttonStyle(.borderedProminent)
+                .accessibilityLabel("Copy to Mac")
+                .disabled(model.image == nil || model.busy)
         }
     }
 }
