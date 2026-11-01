@@ -3,6 +3,8 @@ import SwiftUI
 struct SettingsView: View {
     @Bindable var model: EditorModel
     let browser: MacBrowser
+    let flow: PairingFlow
+    let paired: (Pairing) async -> Void
     @Binding var changed: Bool
     @Environment(\.dismiss) private var dismiss
     @State private var pairing = false
@@ -46,12 +48,7 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .toolbar { Button("Done") { dismiss() } }
             .navigationDestination(isPresented: $pairing) {
-                PairView(browser: browser) { pair in
-                    model.setPairing(pair, browser: browser)
-                    changed = true
-                    pairing = false
-                    Task { await model.refresh() }
-                }
+                PairView(paired: paired, flow: flow)
             }
         }
         .task {

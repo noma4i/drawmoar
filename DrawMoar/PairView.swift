@@ -6,6 +6,7 @@ import VisionKit
 @MainActor @Observable final class PairingFlow {
     var error: String?
     var busy = false
+    var showSettings = false
     private let deviceId: () throws -> String
     private let connect: (PairingInvite, String) async throws -> Pairing
     private let save: (Pairing) throws -> Void
@@ -21,7 +22,7 @@ import VisionKit
         return invite
     }
 
-    func pair(url: URL) async -> Pairing? {
+    @discardableResult func pair(url: URL, paired: (Pairing) async -> Void = { _ in }) async -> Pairing? {
         guard !busy else { return nil }
         busy = true
         error = nil
@@ -30,6 +31,8 @@ import VisionKit
             let invite = try Self.invite(from: url)
             let pairing = try await connect(invite, deviceId())
             try save(pairing)
+            showSettings = false
+            await paired(pairing)
             return pairing
         } catch {
             self.error = error.localizedDescription
@@ -55,15 +58,10 @@ extension PairingFlow {
 }
 
 struct PairView: View {
-    let paired: (Pairing) -> Void
-    @State private var flow: PairingFlow
+    let paired: (Pairing) async -> Void
+    @Bindable var flow: PairingFlow
     @State private var link = ""
     @State private var scanning = false
-
-    init(browser: MacBrowser, paired: @escaping (Pairing) -> Void) {
-        self.paired = paired
-        _flow = State(initialValue: PairingFlow(browser: browser))
-    }
 
     var body: some View {
         Form {
@@ -113,9 +111,7 @@ struct PairView: View {
             return
         }
         Task {
-            if let pairing = await flow.pair(url: url) {
-                paired(pairing)
-            }
+            await flow.pair(url: url, paired: paired)
         }
     }
 }

@@ -4,10 +4,11 @@ import SwiftUI
 struct EditorView: View {
     @Bindable var model: EditorModel
     let browser: MacBrowser
+    @Bindable var flow: PairingFlow
+    let paired: (Pairing) async -> Void
     @Environment(\.scenePhase) private var scenePhase
     @State private var cropping = false
     @State private var canvas = PKCanvasView()
-    @State private var showSettings = false
     @State private var settingsChanged = false
 
     var body: some View {
@@ -33,27 +34,29 @@ struct EditorView: View {
         .task {
             UIApplication.shared.isIdleTimerDisabled = scenePhase == .active
             if model.pairing == nil {
-                showSettings = true
-            } else {
+                flow.showSettings = true
+            } else if !flow.busy {
                 await model.activate()
             }
         }
-        .sheet(isPresented: $showSettings, onDismiss: {
+        .sheet(isPresented: $flow.showSettings, onDismiss: {
             if settingsChanged {
                 settingsChanged = false
-                Task { await model.activate() }
+                if !flow.busy {
+                    Task { await model.activate() }
+                }
             }
         }) {
-            SettingsView(model: model, browser: browser, changed: $settingsChanged)
+            SettingsView(model: model, browser: browser, flow: flow, paired: paired, changed: $settingsChanged)
         }
         .onChange(of: scenePhase) {
             UIApplication.shared.isIdleTimerDisabled = scenePhase == .active
-            if scenePhase == .active {
+            if scenePhase == .active, !flow.busy {
                 Task { await model.activate() }
             }
         }
         .onChange(of: browser.macs) {
-            if model.image == nil {
+            if model.image == nil, !flow.busy {
                 Task { await model.activate() }
             }
         }
@@ -61,7 +64,7 @@ struct EditorView: View {
 
     private var toolbarButtons: some View {
         HStack(spacing: 8) {
-            Button("Settings", systemImage: "gearshape") { showSettings = true }
+            Button("Settings", systemImage: "gearshape") { flow.showSettings = true }
                 .labelStyle(.iconOnly)
                 .accessibilityLabel("Settings")
             Spacer(minLength: 0)

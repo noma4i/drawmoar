@@ -1,5 +1,6 @@
 import CompanionKit
 @testable import DrawMoar
+import UIKit
 import XCTest
 
 @MainActor final class PairingTests: XCTestCase {
@@ -31,4 +32,42 @@ import XCTest
         XCTAssertEqual(requests.map(\.1), [id, id])
         try PairingStore.delete()
     }
+
+    func testPairClosesSettingsAndCapturesOnlyOnSuccess() async {
+        let invite = PairingInvite(macName: "My Mac", secret: Data(repeating: 7, count: 32))
+        let client = PairingCaptureClient()
+        let model = EditorModel(client: client)
+        var fails = false
+        let flow = PairingFlow(deviceId: { "device" }, connect: { invite, id in
+            if fails {
+                throw MacError.unavailable
+            }
+            return Pairing(deviceId: id, key: Data([1]), macName: invite.macName)
+        }, save: { _ in })
+        flow.showSettings = true
+        await flow.pair(url: invite.url) { _ in await model.newCapture() }
+        XCTAssertFalse(flow.showSettings)
+        XCTAssertEqual(client.captures, 1)
+        fails = true
+        flow.showSettings = true
+        await flow.pair(url: invite.url) { _ in await model.newCapture() }
+        XCTAssertTrue(flow.showSettings)
+        XCTAssertNotNil(flow.error)
+        XCTAssertEqual(client.captures, 1)
+    }
+}
+
+@MainActor private final class PairingCaptureClient: MacCapturing {
+    var captures = 0
+
+    func capture(displayId _: UInt32?) async throws -> Data {
+        captures += 1
+        return UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).image { _ in }.pngData()!
+    }
+
+    func displays() async throws -> [DisplayInfo] {
+        []
+    }
+
+    func paste(_: Data, session _: String) async throws {}
 }

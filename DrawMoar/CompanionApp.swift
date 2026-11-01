@@ -2,15 +2,22 @@ import SwiftUI
 
 @main struct CompanionApp: App {
     @State private var browser = MacBrowser()
+    @State private var flow: PairingFlow
     @State private var model: EditorModel?
     @State private var storeError: String?
     @State private var pairingError: String?
+
+    init() {
+        let browser = MacBrowser()
+        _browser = State(initialValue: browser)
+        _flow = State(initialValue: PairingFlow(browser: browser))
+    }
 
     var body: some Scene {
         WindowGroup {
             Group {
                 if let model {
-                    EditorView(model: model, browser: browser)
+                    EditorView(model: model, browser: browser, flow: flow, paired: paired)
                 } else {
                     ProgressView()
                 }
@@ -25,16 +32,10 @@ import SwiftUI
             }
             .onOpenURL { url in
                 Task {
-                    let flow = PairingFlow(browser: browser)
-                    guard let pairing = await flow.pair(url: url) else {
+                    guard await flow.pair(url: url, paired: paired) != nil else {
                         pairingError = flow.error
                         return
                     }
-                    if model == nil {
-                        model = EditorModel(client: nil)
-                    }
-                    model?.setPairing(pairing, browser: browser)
-                    await model?.refresh()
                 }
             }
             .alert("Pairing", isPresented: Binding(get: { pairingError != nil }, set: {
@@ -52,5 +53,13 @@ import SwiftUI
                 Button("OK") { storeError = nil }
             } message: { Text(storeError ?? "") }
         }
+    }
+
+    private func paired(_ pairing: Pairing) async {
+        if model == nil {
+            model = EditorModel(client: nil)
+        }
+        model?.setPairing(pairing, browser: browser)
+        await model?.newCapture()
     }
 }
