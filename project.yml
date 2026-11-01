@@ -17,7 +17,7 @@ targets:
     info:
       path: .build/DrawMoar-Info.plist
       properties:
-        CFBundleShortVersionString: 1.1.0
+        CFBundleShortVersionString: 1.2.0
         DrawMoarAppGroup: group.${DRAWMOAR_BUNDLE_ID}
         NSLocalNetworkUsageDescription: Connect to ClipMoar on your Mac.
         NSCameraUsageDescription: Scan the pairing code shown on your Mac.
@@ -47,7 +47,7 @@ targets:
       path: .build/DrawMoarShare-Info.plist
       properties:
         CFBundleDisplayName: DrawMoar
-        CFBundleShortVersionString: 1.1.0
+        CFBundleShortVersionString: 1.2.0
         DrawMoarAppGroup: group.${DRAWMOAR_BUNDLE_ID}
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services

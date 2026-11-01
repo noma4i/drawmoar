@@ -50,6 +50,7 @@ struct EditorView: View {
                 Task { await model.flushHistory() }
             }
             if scenePhase == .active {
+                browser.restart()
                 Task {
                     await model.pruneHistoryAfterSave()
                     if !flow.busy {

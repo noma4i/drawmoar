@@ -33,7 +33,16 @@ struct SettingsView: View {
                 }
                 Section("Mac") {
                     if let mac = model.pairing {
-                        LabeledContent(mac.macName, value: browser.macs.contains(where: { $0.name == mac.macName }) ? "Available" : "Unavailable")
+                        Text(mac.macName)
+                        TextField("Remote address", text: Binding(get: { browser.remoteAddress(for: mac.macName) }, set: {
+                            browser.setRemoteAddress($0, for: mac.macName)
+                            changed = true
+                        }))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        if let route = browser.connectedRoute(for: mac.macName) {
+                            Text("Connected via \(route)").font(.caption).foregroundStyle(.secondary)
+                        }
                         Button("Pair with another Mac") { pairing = true }
                         Button("Forget this Mac", role: .destructive) {
                             model.forgetMac()

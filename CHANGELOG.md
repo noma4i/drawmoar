@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.0] - 2026-11-02
+
+### Added
+- Tailscale connections and a Remote address setting
+
+### Fixed
+- Mac not found immediately after launch or return
+- Connection attempts no longer hang
+
 ## [1.1.0] - 2026-11-02
 
 ### Added

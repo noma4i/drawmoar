@@ -62,6 +62,8 @@ The share extension uses App Groups, which requires a paid Apple Developer team.
 
 Capture the Mac screen, draw with PencilKit, and crop the image. DrawMoar sends the result to the Mac clipboard 2.5 seconds after the last edit. Press New for another capture.
 
+DrawMoar connects by Mac name on the local network, then tries addresses from the pairing QR and the optional Remote address in Settings. After a successful connection, it tries that route first.
+
 Choose Window to select a window. Tap again to select a deeper part, or double tap to confirm. Open History on the left to revisit captures or swipe to delete one. Settings includes the paired Mac and display choice (Auto or a fixed display), storage size and retention, and System, Light, or Dark appearance.
 
 ## Simulator
@@ -74,3 +76,4 @@ Install an iOS simulator runtime in Xcode. With exactly one simulator running, u
 - Untrusted Developer: follow the device's instructions to trust the developer, then launch DrawMoar again.
 - App stops opening after 7 days: with a free Personal Team, run `scripts/device.sh` again to rebuild and reinstall.
 - Mac not found: confirm both devices use the same local network, Local Network access is enabled for DrawMoar, and the macOS firewall allows ClipMoar.
+- Tailscale needs ClipMoar 1.9.0+ (fixed port 47823) and Tailscale running on both devices. Use the address from the pairing QR or enter a Tailscale address in Remote address.

@@ -1,9 +1,68 @@
 import CompanionKit
 @testable import DrawMoar
+import Network
 import UIKit
 import XCTest
 
 @MainActor final class PairingTests: XCTestCase {
+    func testRoutesAndRemoteAddress() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        let browser = MacBrowser(defaults: defaults, start: false)
+        let service = NWEndpoint.service(name: "Mac", type: bonjourServiceType, domain: "local.", interface: nil)
+        let host = NWEndpoint.hostPort(host: "100.90.189.102", port: 47823)
+        var attempted: [NWEndpoint] = []
+        let local = try await browser.connect(name: "Mac", hosts: [], port: nil) { endpoint in
+            attempted.append(endpoint)
+            return "ok"
+        }
+        XCTAssertEqual(local, "ok")
+        XCTAssertEqual(attempted, [service])
+        attempted = []
+        let remote = try await browser.connect(name: "Mac", hosts: ["100.90.189.102"], port: 47823) { endpoint in
+            attempted.append(endpoint)
+            if endpoint == service {
+                throw MacError.disconnected
+            }
+            return "ok"
+        }
+        XCTAssertEqual(remote, "ok")
+        XCTAssertEqual(attempted, [service, host])
+        XCTAssertNil(browser.connectedRoute(for: "Mac"))
+        browser.recordResponse(from: host, for: "Mac")
+        XCTAssertEqual(browser.connectedRoute(for: "Mac"), "Tailscale")
+        attempted = []
+        _ = try await browser.connect(name: "Mac", hosts: ["100.90.189.102"], port: 47823) { endpoint in
+            attempted.append(endpoint)
+            return "ok"
+        }
+        XCTAssertEqual(attempted, [host])
+        browser.setRemoteAddress("example.ts.net", for: "Other")
+        let address = NWEndpoint.hostPort(host: "example.ts.net", port: 47823)
+        attempted = []
+        do {
+            let _: String = try await browser.connect(name: "Other", hosts: [], port: nil) { endpoint in
+                attempted.append(endpoint)
+                throw MacError.disconnected
+            }
+            XCTFail("Expected unreachable error")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "Mac not reachable on the local network or Tailscale")
+        }
+        XCTAssertEqual(attempted, [.service(name: "Other", type: bonjourServiceType, domain: "local.", interface: nil), address])
+    }
+
+    func testPairingRouteFieldsAndOldJSON() throws {
+        let old = Data(#"{"deviceId":"device","key":"AQ==","macName":"Mac"}"#.utf8)
+        let decoded = try JSONDecoder().decode(Pairing.self, from: old)
+        XCTAssertNil(decoded.port)
+        XCTAssertNil(decoded.hosts)
+        let invite = PairingInvite(macName: "Mac", secret: Data(repeating: 7, count: 32), port: 47823, hosts: ["100.90.189.102"])
+        let pairing = Pairing(deviceId: "device", key: Data([1]), invite: invite)
+        let restored = try JSONDecoder().decode(Pairing.self, from: JSONEncoder().encode(pairing))
+        XCTAssertEqual(restored.port, invite.port)
+        XCTAssertEqual(restored.hosts, invite.hosts)
+    }
+
     func testInviteFromURL() throws {
         let invite = PairingInvite(macName: "My Mac", secret: Data(repeating: 7, count: 32))
         XCTAssertEqual(try PairingFlow.invite(from: invite.url), invite)

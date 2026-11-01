@@ -14,7 +14,7 @@ enum MacError: LocalizedError {
     case unavailable, disconnected, unexpected, expiredInvite, invalidInvite, remote(String)
     var errorDescription: String? {
         switch self {
-        case .unavailable: "Mac not found on the local network"
+        case .unavailable: "Mac not reachable on the local network or Tailscale"
         case .disconnected: "Connection closed"
         case .unexpected: "Unexpected response from Mac"
         case .expiredInvite: "Pairing link expired. Open Pair device on your Mac and try again."
@@ -33,15 +33,15 @@ enum MacError: LocalizedError {
         self.browser = browser
     }
 
-    static func pair(mac: Mac, invite: PairingInvite, deviceId: String) async throws -> Pairing {
-        let connection = CompanionConnection(NWConnection(to: mac.endpoint, using: CompanionTLS.clientParameters(identity: "pair", key: CompanionTLS.pairingKey(secret: invite.secret))))
+    static func pair(invite: PairingInvite, deviceId: String, browser: MacBrowser) async throws -> Pairing {
+        let (connection, _) = try await browser.connect(name: invite.macName, hosts: invite.hosts, port: invite.port, identity: "pair", key: CompanionTLS.pairingKey(secret: invite.secret))
         defer { connection.connection.cancel() }
         var iterator = connection.messages.makeAsyncIterator()
         do {
             try await connection.send(.pairRequest(deviceId: deviceId, deviceName: UIDevice.current.name))
             guard let response = try await iterator.next() else { throw MacError.disconnected }
             switch response {
-            case let .pairGranted(key): return Pairing(deviceId: deviceId, key: key, macName: mac.name)
+            case let .pairGranted(key): return Pairing(deviceId: deviceId, key: key, invite: invite)
             case let .error(message): throw MacError.remote(message)
             default: throw MacError.unexpected
             }
@@ -60,21 +60,17 @@ enum MacError: LocalizedError {
     }
 
     func paste(_ data: Data, session: String) async throws {
-        guard let mac = browser.macs.first(where: { $0.name == pairing.macName }) else { throw MacError.unavailable }
-        let endpoint = mac.endpoint
-        let pairing = pairing
-        guard case .ok = try await Task.detached(priority: .utility, operation: {
-            try await Self.request(.paste(png: data, session: session), endpoint: endpoint, pairing: pairing)
-        }).value else { throw MacError.unexpected }
+        guard case .ok = try await request(.paste(png: data, session: session)) else { throw MacError.unexpected }
     }
 
     private func request(_ message: Message) async throws -> Message {
-        guard let mac = browser.macs.first(where: { $0.name == pairing.macName }) else { throw MacError.unavailable }
-        return try await Self.request(message, endpoint: mac.endpoint, pairing: pairing)
+        let (connection, endpoint) = try await browser.connect(name: pairing.macName, hosts: pairing.hosts ?? [], port: pairing.port, identity: pairing.deviceId, key: SymmetricKey(data: pairing.key))
+        let response = try await Self.request(message, connection: connection, pairing: pairing)
+        browser.recordResponse(from: endpoint, for: pairing.macName)
+        return response
     }
 
-    private nonisolated static func request(_ message: Message, endpoint: NWEndpoint, pairing: Pairing) async throws -> Message {
-        let connection = CompanionConnection(NWConnection(to: endpoint, using: CompanionTLS.clientParameters(identity: pairing.deviceId, key: SymmetricKey(data: pairing.key))))
+    private nonisolated static func request(_ message: Message, connection: CompanionConnection, pairing: Pairing) async throws -> Message {
         defer { connection.connection.cancel() }
         var iterator = connection.messages.makeAsyncIterator()
         try await connection.send(.hello(deviceId: pairing.deviceId))

@@ -44,15 +44,7 @@ import VisionKit
 extension PairingFlow {
     convenience init(browser: MacBrowser) {
         self.init { invite, id in
-            let clock = ContinuousClock()
-            let deadline = clock.now.advanced(by: .seconds(10))
-            while clock.now < deadline {
-                if let mac = browser.macs.first(where: { $0.name == invite.macName }) {
-                    return try await MacClient.pair(mac: mac, invite: invite, deviceId: id)
-                }
-                try await Task.sleep(for: .milliseconds(100))
-            }
-            throw MacError.unavailable
+            try await MacClient.pair(invite: invite, deviceId: id, browser: browser)
         }
     }
 }

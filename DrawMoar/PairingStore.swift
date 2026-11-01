@@ -1,3 +1,4 @@
+import CompanionKit
 import Foundation
 import Security
 
@@ -5,6 +6,20 @@ struct Pairing: Codable {
     let deviceId: String
     let key: Data
     let macName: String
+    var port: UInt16? = nil
+    var hosts: [String]? = nil
+
+    init(deviceId: String, key: Data, macName: String, port: UInt16? = nil, hosts: [String]? = nil) {
+        self.deviceId = deviceId
+        self.key = key
+        self.macName = macName
+        self.port = port
+        self.hosts = hosts
+    }
+
+    init(deviceId: String, key: Data, invite: PairingInvite) {
+        self.init(deviceId: deviceId, key: key, macName: invite.macName, port: invite.port, hosts: invite.hosts)
+    }
 }
 
 enum PairingStore {
