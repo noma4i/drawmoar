@@ -20,6 +20,9 @@ import UIKit
 
     var error: String?
     var busy = false
+    var sending = false
+    private(set) var lineWidth: CGFloat
+    static let lineWidths: [CGFloat] = [4, 8, 16, 32]
     var copied = 0
     var client: (any MacCapturing)?
     var pairing: Pairing?
@@ -31,9 +34,21 @@ import UIKit
         self.pairing = pairing
         self.defaults = defaults
         self.deletePairing = deletePairing
+        let savedWidth = CGFloat(defaults.double(forKey: "lineWidth"))
+        lineWidth = Self.lineWidths.contains(savedWidth) ? savedWidth : Self.lineWidths[1]
         if let value = defaults.object(forKey: "displayId") as? Int {
             selectedDisplay = UInt32(exactly: value)
         }
+    }
+
+    func setLineWidth(_ width: CGFloat) {
+        guard Self.lineWidths.contains(width) else { return }
+        lineWidth = width
+        defaults.set(Double(width), forKey: "lineWidth")
+    }
+
+    static func inkingTool(_ tool: PKInkingTool, width: CGFloat) -> PKInkingTool {
+        PKInkingTool(tool.inkType, color: tool.color, width: width)
     }
 
     func forgetMac() {
@@ -85,7 +100,8 @@ import UIKit
     func copy() async {
         guard let image, let client, !busy else { return }
         busy = true
-        defer { busy = false }
+        sending = true
+        defer { busy = false; sending = false }
         do {
             let data = try ImageRenderer.png(image: image, drawing: drawing, crop: crop)
             try await client.paste(data)

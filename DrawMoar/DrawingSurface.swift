@@ -7,6 +7,8 @@ struct DrawingSurface: UIViewRepresentable {
     @Binding var crop: CGRect?
     let cropping: Bool
     let canvas: PKCanvasView
+    let lineWidth: CGFloat
+    @Binding var pickerHeight: CGFloat
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -36,12 +38,15 @@ struct DrawingSurface: UIViewRepresentable {
         content.addSubview(overlay)
         context.coordinator.picker.setVisible(true, forFirstResponder: canvas)
         context.coordinator.picker.addObserver(canvas)
+        context.coordinator.picker.addObserver(context.coordinator)
         canvas.becomeFirstResponder()
+        context.coordinator.applyWidth()
         return scroll
     }
 
     func updateUIView(_ scroll: UIScrollView, context: Context) {
         context.coordinator.parent = self
+        context.coordinator.applyWidth()
         guard let cgImage = image.cgImage, let content = scroll.viewWithTag(1),
               let imageView = content.viewWithTag(2) as? UIImageView,
               let overlay = content.viewWithTag(3) as? CropOverlay else { return }
@@ -68,7 +73,7 @@ struct DrawingSurface: UIViewRepresentable {
         overlay.setNeedsDisplay()
     }
 
-    final class Coordinator: NSObject, UIScrollViewDelegate, PKCanvasViewDelegate {
+    final class Coordinator: NSObject, UIScrollViewDelegate, PKCanvasViewDelegate, PKToolPickerObserver {
         var parent: DrawingSurface
         let picker = PKToolPicker()
         init(_ parent: DrawingSurface) {
@@ -81,6 +86,47 @@ struct DrawingSurface: UIViewRepresentable {
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             parent.drawing = canvasView.drawing
+        }
+
+        func applyWidth() {
+            if let tool = canvasInkingTool() {
+                let adjusted = EditorModel.inkingTool(tool, width: parent.lineWidth)
+                if (parent.canvas.tool as? PKInkingTool) != adjusted {
+                    parent.canvas.tool = adjusted
+                }
+            }
+        }
+
+        private func canvasInkingTool() -> PKInkingTool? {
+            if #available(iOS 18.0, *) {
+                return (picker.selectedToolItem as? PKToolPickerInkingItem)?.inkingTool
+            }
+            return picker.selectedTool as? PKInkingTool
+        }
+
+        func toolPickerSelectedToolItemDidChange(_: PKToolPicker) {
+            applyWidth()
+        }
+
+        func toolPickerSelectedToolDidChange(_: PKToolPicker) {
+            applyWidth()
+        }
+
+        func toolPickerFramesObscuredDidChange(_: PKToolPicker) {
+            updatePickerHeight()
+        }
+
+        func toolPickerVisibilityDidChange(_: PKToolPicker) {
+            updatePickerHeight()
+        }
+
+        private func updatePickerHeight() {
+            guard let window = parent.canvas.window else { return }
+            let frame = picker.frameObscured(in: window)
+            let height = frame.isNull ? 0 : max(0, window.bounds.maxY - frame.minY - window.safeAreaInsets.bottom)
+            if parent.pickerHeight != height {
+                DispatchQueue.main.async { self.parent.pickerHeight = height }
+            }
         }
     }
 }

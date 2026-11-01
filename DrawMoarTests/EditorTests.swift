@@ -4,6 +4,20 @@ import PencilKit
 import XCTest
 
 @MainActor final class EditorTests: XCTestCase {
+    func testLineWidthPersistsAndPreservesInk() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        let model = EditorModel(client: nil, defaults: defaults)
+        model.setLineWidth(16)
+        XCTAssertEqual(defaults.double(forKey: "lineWidth"), 16)
+        let restored = EditorModel(client: nil, defaults: defaults)
+        XCTAssertEqual(restored.lineWidth, 16)
+        let original = PKInkingTool(.marker, color: .red, width: 4)
+        let result = EditorModel.inkingTool(original, width: restored.lineWidth)
+        XCTAssertEqual(result.inkType, original.inkType)
+        XCTAssertEqual(result.color, original.color)
+        XCTAssertEqual(result.width, 16, accuracy: 0.001)
+    }
+
     func testRenderAndCropPreservePixelsAndStroke() throws {
         var result: Result<Void, Error>!
         UITraitCollection(userInterfaceStyle: .dark).performAsCurrent {
