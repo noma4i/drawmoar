@@ -21,7 +21,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.noma4i.DrawMoar
-        DEVELOPMENT_TEAM: 7538B6Y8M3
+        DEVELOPMENT_TEAM: 89QF7X66FR
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: '1,2'
   DrawMoarTests:
@@ -34,7 +34,7 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.noma4i.DrawMoarTests
-        DEVELOPMENT_TEAM: 7538B6Y8M3
+        DEVELOPMENT_TEAM: 89QF7X66FR
         CODE_SIGN_STYLE: Automatic
 schemes:
   DrawMoar:
