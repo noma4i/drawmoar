@@ -1,0 +1,6 @@
+*.xcodeproj/
+.build/
+DerivedData/
+.orca-artifacts/
+.DS_Store
+xcuserdata/
