@@ -173,6 +173,57 @@ import XCTest
         XCTAssertNil(model.client)
     }
 
+    func testHistoryRestoresEditsAndSendsSelectedCapture() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let client = FakeClient()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        let model = EditorModel(client: client, defaults: defaults, historyDirectory: directory)
+        await model.newCapture()
+        let first = try XCTUnwrap(model.history.first)
+        let point = PKStrokePoint(location: CGPoint(x: 1, y: 1), timeOffset: 0, size: CGSize(width: 1, height: 1), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+        model.drawing = PKDrawing(strokes: [PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: [point, point], creationDate: Date()))])
+        model.applyCrop(CGRect(x: 0, y: 0, width: 1, height: 1))
+        let expectedDrawing = model.drawing
+        await model.newCapture()
+        XCTAssertEqual(model.history.count, 2)
+        XCTAssertNotEqual(model.history.first?.id, first.id)
+        let restored = EditorModel(client: client, defaults: defaults, historyDirectory: directory)
+        let saved = try XCTUnwrap(restored.history.first { $0.id == first.id })
+        XCTAssertEqual(saved.drawing.strokes.count, expectedDrawing.strokes.count)
+        XCTAssertEqual(saved.drawing.strokes.first?.path.first?.location, expectedDrawing.strokes.first?.path.first?.location)
+        XCTAssertEqual(saved.crop, CGRect(x: 0, y: 0, width: 1, height: 1))
+        await restored.select(saved)
+        XCTAssertEqual(client.sessions, [first.id])
+        let expected = try ImageRenderer.png(image: saved.image, drawing: saved.drawing, crop: saved.crop)
+        XCTAssertEqual(client.images, [expected])
+        restored.deleteHistory(saved)
+        XCTAssertNil(restored.image)
+        XCTAssertFalse(restored.history.contains { $0.id == saved.id })
+        let reloaded = EditorModel(client: nil, defaults: defaults, historyDirectory: directory)
+        XCTAssertFalse(reloaded.history.contains { $0.id == saved.id })
+    }
+
+    func testHistoryLimitAndCropUndo() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let client = FakeClient()
+        let model = try EditorModel(client: client, defaults: XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), historyDirectory: directory)
+        for _ in 0 ..< 31 {
+            await model.newCapture()
+        }
+        XCTAssertEqual(model.history.count, 30)
+        let restored = try EditorModel(client: nil, defaults: XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), historyDirectory: directory)
+        XCTAssertEqual(restored.history.count, 30)
+        let image = try XCTUnwrap(model.image)
+        model.applyCrop(CGRect(x: 0, y: 0, width: 1, height: 1))
+        let cropped = try XCTUnwrap(UIImage(data: ImageRenderer.png(image: image, drawing: model.drawing, crop: model.crop))?.cgImage)
+        XCTAssertEqual(cropped.width, 1)
+        XCTAssertTrue(model.undoCrop())
+        let original = try XCTUnwrap(UIImage(data: ImageRenderer.png(image: image, drawing: model.drawing, crop: model.crop))?.cgImage)
+        XCTAssertEqual(original.width, image.cgImage?.width)
+    }
+
     private func pixel(_ image: CGImage, x: Int, y: Int) -> UInt8 {
         var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
         let context = CGContext(data: &bytes, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!

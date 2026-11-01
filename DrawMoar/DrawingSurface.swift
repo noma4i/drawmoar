@@ -5,6 +5,7 @@ struct DrawingSurface: UIViewRepresentable {
     let image: UIImage
     @Binding var drawing: PKDrawing
     @Binding var crop: CGRect?
+    let appliedCrop: CGRect?
     let cropping: Bool
     let canvas: PKCanvasView
     let lineWidth: CGFloat
@@ -20,6 +21,7 @@ struct DrawingSurface: UIViewRepresentable {
         scroll.backgroundColor = .secondarySystemBackground
         let content = UIView()
         content.tag = 1
+        content.clipsToBounds = true
         scroll.addSubview(content)
         let imageView = UIImageView()
         imageView.tag = 2
@@ -54,13 +56,14 @@ struct DrawingSurface: UIViewRepresentable {
               let overlay = content.viewWithTag(3) as? CropOverlay else { return }
         let scale = EditorModel.canvasScale(for: CGSize(width: cgImage.width, height: cgImage.height))
         let size = CGSize(width: CGFloat(cgImage.width) * scale, height: CGFloat(cgImage.height) * scale)
-        if content.bounds.size != size {
-            content.frame = CGRect(origin: .zero, size: size)
-            imageView.frame = content.bounds
-            canvas.frame = content.bounds
-            overlay.frame = content.bounds
-            scroll.contentSize = size
-            let fit = min(scroll.bounds.width / size.width, scroll.bounds.height / size.height)
+        let visible = cropping ? CGRect(origin: .zero, size: size) : (appliedCrop?.applying(CGAffineTransform(scaleX: scale, y: scale)) ?? CGRect(origin: .zero, size: size))
+        if content.bounds.size != visible.size || imageView.frame.origin != CGPoint(x: -visible.minX, y: -visible.minY) {
+            content.frame = CGRect(origin: .zero, size: visible.size)
+            imageView.frame = CGRect(origin: CGPoint(x: -visible.minX, y: -visible.minY), size: size)
+            canvas.frame = imageView.frame
+            overlay.frame = imageView.frame
+            scroll.contentSize = visible.size
+            let fit = min(scroll.bounds.width / visible.width, scroll.bounds.height / visible.height)
             if fit > 0 {
                 scroll.minimumZoomScale = fit
                 scroll.zoomScale = fit
@@ -125,7 +128,8 @@ struct DrawingSurface: UIViewRepresentable {
 final class CropOverlay: UIView {
     var rect: CGRect?
     var changed: ((CGRect) -> Void)?
-    private var corner = 0
+    private var corner: Int?
+    private var moving = false
     private var initial = CGRect.zero
 
     override init(frame: CGRect) {
@@ -165,17 +169,31 @@ final class CropOverlay: UIView {
         let point = gesture.location(in: self)
         if gesture.state == .began {
             initial = rect
-            corner = corners(rect).enumerated().min { a, b in
-                hypot(a.element.x - point.x, a.element.y - point.y) < hypot(b.element.x - point.x, b.element.y - point.y)
-            }?.offset ?? 0
+            let zoom = (superview?.superview as? UIScrollView)?.zoomScale ?? 1
+            let hitRadius = 22 / max(zoom, 0.01)
+            corner = corners(rect).enumerated().first { hypot($0.element.x - point.x, $0.element.y - point.y) <= hitRadius }?.offset
+            moving = corner == nil && rect.contains(point)
         }
-        let opposite = corners(initial)[3 - corner]
-        let x = min(max(point.x, bounds.minX), bounds.maxX)
-        let y = min(max(point.y, bounds.minY), bounds.maxY)
-        let next = CGRect(x: min(x, opposite.x), y: min(y, opposite.y), width: abs(x - opposite.x), height: abs(y - opposite.y))
-        if next.width >= 1, next.height >= 1 {
-            self.rect = next; changed?(next); setNeedsDisplay()
+        let next: CGRect
+        if moving {
+            let delta = gesture.translation(in: self)
+            let x = min(max(initial.minX + delta.x, bounds.minX), bounds.maxX - initial.width)
+            let y = min(max(initial.minY + delta.y, bounds.minY), bounds.maxY - initial.height)
+            next = CGRect(x: x, y: y, width: initial.width, height: initial.height)
+        } else if let corner {
+            let minimum = min(44, bounds.width, bounds.height)
+            let left = corner == 0 || corner == 2
+            let top = corner == 0 || corner == 1
+            let x = left ? min(max(point.x, bounds.minX), initial.maxX - minimum) : max(min(point.x, bounds.maxX), initial.minX + minimum)
+            let y = top ? min(max(point.y, bounds.minY), initial.maxY - minimum) : max(min(point.y, bounds.maxY), initial.minY + minimum)
+            let opposite = corners(initial)[3 - corner]
+            next = CGRect(x: min(x, opposite.x), y: min(y, opposite.y), width: abs(x - opposite.x), height: abs(y - opposite.y))
+        } else {
+            return
         }
+        self.rect = next
+        changed?(next)
+        setNeedsDisplay()
     }
 }
 

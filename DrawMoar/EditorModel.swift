@@ -6,6 +6,10 @@ import UIKit
 @MainActor @Observable final class EditorModel {
     var image: UIImage?
     private var session = UUID().uuidString
+    private var captureDate = Date()
+    private(set) var history: [CaptureEntry] = []
+    private let storage: CaptureHistory
+    private var cropUndo: [CGRect?] = []
     var drawing = PKDrawing() {
         didSet {
             if drawing != oldValue {
@@ -52,7 +56,9 @@ import UIKit
     private var readyRevision: Int?
     private var resetting = false
 
-    init(client: (any MacCapturing)?, pairing: Pairing? = nil, defaults: UserDefaults = .standard, deletePairing: @escaping () throws -> Void = PairingStore.delete, delay: @escaping () async throws -> Void = { try await Task.sleep(for: .milliseconds(500)) }) {
+    init(client: (any MacCapturing)?, pairing: Pairing? = nil, defaults: UserDefaults = .standard, deletePairing: @escaping () throws -> Void = PairingStore.delete, delay: @escaping () async throws -> Void = { try await Task.sleep(for: .milliseconds(500)) }, historyDirectory: URL? = nil) {
+        let directory = historyDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Captures", isDirectory: true)
+        storage = CaptureHistory(directory: directory)
         self.client = client
         self.pairing = pairing
         self.defaults = defaults
@@ -60,6 +66,7 @@ import UIKit
         self.delay = delay
         let savedWidth = CGFloat(defaults.double(forKey: "lineWidth"))
         lineWidth = Self.lineWidths.contains(savedWidth) ? savedWidth : Self.lineWidths[1]
+        do { history = try storage.load() } catch { self.error = error.localizedDescription }
         if let value = defaults.object(forKey: "displayId") as? Int {
             selectedDisplay = UInt32(exactly: value)
         }
@@ -122,8 +129,18 @@ import UIKit
             }
             let data = try await client.capture(displayId: selectedDisplay)
             guard let image = UIImage(data: data) else { throw MacError.unexpected }
+            if let current = currentEntry() {
+                try save(current)
+            }
+            resetting = true
             self.image = image
+            drawing = PKDrawing()
+            crop = nil
+            resetting = false
             session = UUID().uuidString
+            captureDate = Date()
+            cropUndo = []
+            try save(currentEntry()!)
             revision += 1
             debounce?.cancel()
             readyRevision = nil
@@ -135,19 +152,83 @@ import UIKit
     }
 
     func newCapture() async {
-        resetting = true
-        drawing = PKDrawing()
-        crop = nil
-        resetting = false
-        revision += 1
-        debounce?.cancel()
-        readyRevision = nil
-        delivered = false
         await refresh()
+    }
+
+    private func currentEntry() -> CaptureEntry? {
+        guard let image else { return nil }
+        return CaptureEntry(id: session, date: captureDate, image: image, drawing: drawing, crop: crop)
+    }
+
+    private func save(_ entry: CaptureEntry) throws {
+        try storage.save(entry)
+        history.removeAll { $0.id == entry.id }
+        history.append(entry)
+        history.sort { $0.date > $1.date }
+        while history.count > 30 {
+            let removed = history.removeLast()
+            try storage.delete(removed.id)
+        }
+    }
+
+    func select(_ entry: CaptureEntry) async {
+        do {
+            if let current = currentEntry() {
+                try save(current)
+            }
+            debounce?.cancel()
+            revision += 1
+            readyRevision = nil
+            resetting = true
+            image = entry.image
+            drawing = entry.drawing
+            crop = entry.crop
+            session = entry.id
+            captureDate = entry.date
+            cropUndo = []
+            resetting = false
+            delivered = false
+            readyRevision = revision
+            await sendIfReady()
+        } catch { self.error = error.localizedDescription }
+    }
+
+    func deleteHistory(_ entry: CaptureEntry) {
+        do {
+            try storage.delete(entry.id)
+            history.removeAll { $0.id == entry.id }
+            if entry.id == session {
+                debounce?.cancel()
+                revision += 1
+                readyRevision = nil
+                resetting = true
+                image = nil
+                drawing = PKDrawing()
+                crop = nil
+                resetting = false
+                cropUndo = []
+                delivered = false
+            }
+        } catch { self.error = error.localizedDescription }
+    }
+
+    func applyCrop(_ rect: CGRect) {
+        guard crop != rect else { return }
+        cropUndo.append(crop)
+        crop = rect
+    }
+
+    func undoCrop() -> Bool {
+        guard !cropUndo.isEmpty else { return false }
+        crop = cropUndo.removeLast()
+        return true
     }
 
     private func edited() {
         guard !resetting, image != nil else { return }
+        if let current = currentEntry() {
+            do { try save(current) } catch { self.error = error.localizedDescription }
+        }
         revision += 1
         let next = revision
         delivered = false
