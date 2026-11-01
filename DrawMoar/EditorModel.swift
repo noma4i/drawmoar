@@ -8,14 +8,48 @@ import UIKit
     var drawing = PKDrawing()
     var crop: CGRect?
     var displays: [DisplayInfo] = []
-    var selectedDisplay: UInt32?
+    var selectedDisplay: UInt32? {
+        didSet {
+            if let selectedDisplay {
+                defaults.set(Int(selectedDisplay), forKey: "displayId")
+            } else {
+                defaults.removeObject(forKey: "displayId")
+            }
+        }
+    }
+
     var error: String?
     var busy = false
     var copied = 0
-    let client: any MacCapturing
+    var client: (any MacCapturing)?
+    var pairing: Pairing?
+    private let defaults: UserDefaults
+    private let deletePairing: () throws -> Void
 
-    init(client: any MacCapturing) {
+    init(client: (any MacCapturing)?, pairing: Pairing? = nil, defaults: UserDefaults = .standard, deletePairing: @escaping () throws -> Void = PairingStore.delete) {
         self.client = client
+        self.pairing = pairing
+        self.defaults = defaults
+        self.deletePairing = deletePairing
+        if let value = defaults.object(forKey: "displayId") as? Int {
+            selectedDisplay = UInt32(exactly: value)
+        }
+    }
+
+    func forgetMac() {
+        do {
+            try deletePairing()
+            pairing = nil
+            client = nil
+            selectedDisplay = nil
+            error = nil
+        } catch { self.error = error.localizedDescription }
+    }
+
+    func setPairing(_ pairing: Pairing, browser: MacBrowser) {
+        self.pairing = pairing
+        client = MacClient(pairing: pairing, browser: browser)
+        selectedDisplay = nil
     }
 
     func activate() async {
@@ -24,10 +58,16 @@ import UIKit
     }
 
     func refresh() async {
-        guard !busy else { return }
+        guard !busy, let client else { return }
         busy = true
         defer { busy = false }
         do {
+            if selectedDisplay != nil {
+                displays = try await client.displays()
+                if !displays.contains(where: { $0.id == selectedDisplay }) {
+                    selectedDisplay = nil
+                }
+            }
             let data = try await client.capture(displayId: selectedDisplay)
             guard let image = UIImage(data: data) else { throw MacError.unexpected }
             self.image = image
@@ -43,7 +83,7 @@ import UIKit
     }
 
     func copy() async {
-        guard let image, !busy else { return }
+        guard let image, let client, !busy else { return }
         busy = true
         defer { busy = false }
         do {

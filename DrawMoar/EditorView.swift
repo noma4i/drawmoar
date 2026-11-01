@@ -8,17 +8,13 @@ struct EditorView: View {
     @State private var cropping = false
     @State private var showCopied = false
     @State private var canvas = PKCanvasView()
+    @State private var showSettings = false
+    @State private var settingsChanged = false
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView(.horizontal) {
                 HStack {
-                    Picker("Display", selection: $model.selectedDisplay) {
-                        Text("Current display").tag(UInt32?.none)
-                        ForEach(model.displays, id: \.id) { display in
-                            Text(display.name).tag(Optional(display.id))
-                        }
-                    }
                     Button("Refresh", systemImage: "arrow.clockwise") { Task { await model.refresh() } }
                     Button("Crop", systemImage: "crop") {
                         cropping.toggle()
@@ -30,6 +26,8 @@ struct EditorView: View {
                     Button("New", systemImage: "plus") { cropping = false; Task { await model.newCapture() } }
                     Button("Copy to Mac", systemImage: "doc.on.doc") { Task { await model.copy() } }
                         .disabled(model.image == nil || model.busy)
+                    Button("Settings", systemImage: "gearshape") { showSettings = true }
+                        .labelStyle(.iconOnly)
                 }.padding(8)
             }
             if let error = model.error {
@@ -57,7 +55,21 @@ struct EditorView: View {
             showCopied = true
             Task { try? await Task.sleep(for: .seconds(2)); showCopied = false }
         }
-        .task { await model.activate() }
+        .task {
+            if model.pairing == nil {
+                showSettings = true
+            } else {
+                await model.activate()
+            }
+        }
+        .sheet(isPresented: $showSettings, onDismiss: {
+            if settingsChanged {
+                settingsChanged = false
+                Task { await model.activate() }
+            }
+        }) {
+            SettingsView(model: model, browser: browser, changed: $settingsChanged)
+        }
         .onChange(of: scenePhase) {
             if scenePhase == .active {
                 Task { await model.activate() }
@@ -68,6 +80,5 @@ struct EditorView: View {
                 Task { await model.activate() }
             }
         }
-        .onChange(of: model.selectedDisplay) { Task { await model.refresh() } }
     }
 }

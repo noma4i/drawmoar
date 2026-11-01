@@ -34,9 +34,10 @@ import XCTest
         XCTAssertLessThan(pixel(cropped, x: 50, y: 30), 200)
     }
 
-    func testActivateCapturesOnlyWithoutEdits() async {
+    func testActivateCapturesOnlyWithoutEdits() async throws {
         let client = FakeClient()
-        let model = EditorModel(client: client)
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        let model = EditorModel(client: client, defaults: defaults)
         await model.activate()
         XCTAssertEqual(client.captures, 1)
         let point = PKStrokePoint(location: CGPoint(x: 1, y: 1), timeOffset: 0, size: CGSize(width: 4, height: 4), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
@@ -49,6 +50,35 @@ import XCTest
         XCTAssertEqual(client.captures, 1)
     }
 
+    func testSelectedDisplayIsPersistedAndMissingDisplayFallsBackToAuto() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        let client = FakeClient()
+        client.availableDisplays = [DisplayInfo(id: 7, name: "Screen", width: 100, height: 100, isMain: true)]
+        let settings = EditorModel(client: client, defaults: defaults)
+        settings.selectedDisplay = 7
+        let model = EditorModel(client: client, defaults: defaults)
+        await model.activate()
+        XCTAssertEqual(client.displayRequests, [7])
+        model.selectedDisplay = nil
+        await model.activate()
+        XCTAssertEqual(client.displayRequests, [7, nil])
+        model.selectedDisplay = 7
+        client.availableDisplays = []
+        await model.activate()
+        XCTAssertEqual(client.displayRequests, [7, nil, nil])
+        XCTAssertNil(defaults.object(forKey: "displayId"))
+    }
+
+    func testForgetMacDeletesPairingAndRequiresPairing() throws {
+        let pair = Pairing(deviceId: "device", key: Data([1]), macName: "Mac")
+        var stored: Pairing? = pair
+        let model = try EditorModel(client: FakeClient(), pairing: pair, defaults: XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), deletePairing: { stored = nil })
+        model.forgetMac()
+        XCTAssertNil(stored)
+        XCTAssertNil(model.pairing)
+        XCTAssertNil(model.client)
+    }
+
     private func pixel(_ image: CGImage, x: Int, y: Int) -> UInt8 {
         var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
         let context = CGContext(data: &bytes, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
@@ -59,13 +89,16 @@ import XCTest
 
 @MainActor private final class FakeClient: MacCapturing {
     var captures = 0
-    func capture(displayId _: UInt32?) async throws -> Data {
+    var displayRequests: [UInt32?] = []
+    var availableDisplays: [DisplayInfo] = []
+    func capture(displayId: UInt32?) async throws -> Data {
         captures += 1
+        displayRequests.append(displayId)
         return UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).image { _ in }.pngData()!
     }
 
     func displays() async throws -> [DisplayInfo] {
-        []
+        availableDisplays
     }
 
     func paste(_: Data) async throws {}
