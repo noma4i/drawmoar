@@ -53,7 +53,8 @@ import UIKit
     }
 
     static func inkingTool(_ tool: PKInkingTool, width: CGFloat, scale: CGFloat) -> PKInkingTool {
-        PKInkingTool(tool.inkType, color: tool.color, width: width * scale)
+        let range = tool.inkType.validWidthRange
+        return PKInkingTool(tool.inkType, color: tool.color, width: min(max(width * scale, range.lowerBound), range.upperBound))
     }
 
     func forgetMac() {

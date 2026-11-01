@@ -15,7 +15,9 @@ import XCTest
         let result = EditorModel.inkingTool(original, width: restored.lineWidth, scale: 0.4)
         XCTAssertEqual(result.inkType, original.inkType)
         XCTAssertEqual(result.color, original.color)
-        XCTAssertEqual(result.width, 6.4, accuracy: 0.001)
+        XCTAssertEqual(result.width, max(6.4, PKInkingTool.InkType.marker.validWidthRange.lowerBound), accuracy: 0.001)
+        let pen = EditorModel.inkingTool(PKInkingTool(.pen), width: restored.lineWidth, scale: 0.4)
+        XCTAssertEqual(pen.width, 6.4, accuracy: 0.001)
     }
 
     func testCanvasScaleLimitsLongestSide() {
