@@ -248,6 +248,34 @@ import XCTest
         XCTAssertEqual(original.width, image.cgImage?.width)
     }
 
+    func testWindowSelectionAndCaptureHistory() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let client = FakeClient()
+        client.windows = [
+            WindowFrame(x: 1, y: 1, width: 4, height: 4, app: "Front", title: "A"),
+            WindowFrame(x: 3, y: 3, width: 5, height: 5, app: "Back", title: "B"),
+        ]
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        let model = EditorModel(client: client, defaults: defaults, historyDirectory: directory)
+        await model.newCapture()
+        XCTAssertEqual(model.windows, client.windows)
+        let front = CGRect(x: 1, y: 1, width: 4, height: 4)
+        let back = CGRect(x: 3, y: 3, width: 5, height: 5)
+        XCTAssertEqual(model.window(at: CGPoint(x: 4, y: 4)), front)
+        XCTAssertEqual(model.window(at: CGPoint(x: 7, y: 7)), back)
+        XCTAssertNil(model.window(at: CGPoint(x: 9, y: 9)))
+        try model.applyCrop(XCTUnwrap(model.window(at: CGPoint(x: 4, y: 4))))
+        XCTAssertEqual(model.crop, front)
+        XCTAssertTrue(model.undoCrop())
+        XCTAssertNil(model.crop)
+        let restored = EditorModel(client: nil, defaults: defaults, historyDirectory: directory)
+        let entry = try XCTUnwrap(restored.history.first)
+        XCTAssertEqual(entry.windows, client.windows)
+        await restored.select(entry)
+        XCTAssertEqual(restored.windows, client.windows)
+    }
+
     private func pixel(_ image: CGImage, x: Int, y: Int) -> UInt8 {
         var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
         let context = CGContext(data: &bytes, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
@@ -276,10 +304,16 @@ import XCTest
     var images: [Data] = []
     var holdPaste = false
     var pendingPaste: CheckedContinuation<Void, Never>?
-    func capture(displayId: UInt32?) async throws -> Data {
+    var windows: [WindowFrame] = []
+    func capture(displayId: UInt32?) async throws -> (png: Data, windows: [WindowFrame]) {
         captures += 1
         displayRequests.append(displayId)
-        return UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).image { _ in }.pngData()!
+        let png = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).image { _ in }.pngData()!
+        let bytes = try Message.screenshot(png: png, windows: windows).encode()
+        var decoder = FrameDecoder()
+        guard let frame = try decoder.append(bytes).first,
+              case let .screenshot(decoded, frames) = try Message(frame: frame) else { throw MacError.unexpected }
+        return (decoded, frames)
     }
 
     func displays() async throws -> [DisplayInfo] {

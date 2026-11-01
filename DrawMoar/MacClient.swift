@@ -5,7 +5,7 @@ import Network
 import UIKit
 
 protocol MacCapturing {
-    func capture(displayId: UInt32?) async throws -> Data
+    func capture(displayId: UInt32?) async throws -> (png: Data, windows: [WindowFrame])
     func displays() async throws -> [DisplayInfo]
     func paste(_ data: Data, session: String) async throws
 }
@@ -49,9 +49,9 @@ enum MacError: LocalizedError {
         catch { throw MacError.expiredInvite }
     }
 
-    func capture(displayId: UInt32?) async throws -> Data {
-        guard case let .image(data) = try await request(.capture(displayId: displayId)) else { throw MacError.unexpected }
-        return data
+    func capture(displayId: UInt32?) async throws -> (png: Data, windows: [WindowFrame]) {
+        guard case let .screenshot(png, windows) = try await request(.capture(displayId: displayId)) else { throw MacError.unexpected }
+        return (png, windows)
     }
 
     func displays() async throws -> [DisplayInfo] {

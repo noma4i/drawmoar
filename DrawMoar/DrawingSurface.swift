@@ -1,3 +1,4 @@
+import CompanionKit
 import PencilKit
 import SwiftUI
 
@@ -7,6 +8,9 @@ struct DrawingSurface: UIViewRepresentable {
     @Binding var crop: CGRect?
     let appliedCrop: CGRect?
     let cropping: Bool
+    let selectingWindow: Bool
+    let windows: [WindowFrame]
+    let selectWindow: (CGPoint) -> Void
     let canvas: PKCanvasView
     let lineWidth: CGFloat
 
@@ -40,6 +44,13 @@ struct DrawingSurface: UIViewRepresentable {
             context.coordinator.parent.crop = rect.applying(CGAffineTransform(scaleX: 1 / scale, y: 1 / scale))
         }
         content.addSubview(overlay)
+        let windowOverlay = WindowOverlay()
+        windowOverlay.tag = 4
+        windowOverlay.selected = { point in
+            let scale = context.coordinator.canvasScale
+            context.coordinator.parent.selectWindow(CGPoint(x: point.x / scale, y: point.y / scale))
+        }
+        content.addSubview(windowOverlay)
         context.coordinator.picker.setVisible(true, forFirstResponder: canvas)
         context.coordinator.picker.addObserver(canvas)
         context.coordinator.picker.addObserver(context.coordinator)
@@ -53,15 +64,17 @@ struct DrawingSurface: UIViewRepresentable {
         context.coordinator.applyWidth()
         guard let cgImage = image.cgImage, let content = scroll.viewWithTag(1),
               let imageView = content.viewWithTag(2) as? UIImageView,
-              let overlay = content.viewWithTag(3) as? CropOverlay else { return }
+              let overlay = content.viewWithTag(3) as? CropOverlay,
+              let windowOverlay = content.viewWithTag(4) as? WindowOverlay else { return }
         let scale = EditorModel.canvasScale(for: CGSize(width: cgImage.width, height: cgImage.height))
         let size = CGSize(width: CGFloat(cgImage.width) * scale, height: CGFloat(cgImage.height) * scale)
-        let visible = cropping ? CGRect(origin: .zero, size: size) : (appliedCrop?.applying(CGAffineTransform(scaleX: scale, y: scale)) ?? CGRect(origin: .zero, size: size))
+        let visible = cropping || selectingWindow ? CGRect(origin: .zero, size: size) : (appliedCrop?.applying(CGAffineTransform(scaleX: scale, y: scale)) ?? CGRect(origin: .zero, size: size))
         if let scroll = scroll as? ImageScrollView, scroll.prepareImage(image, visible: visible, imageSize: size) {
             content.frame = CGRect(origin: .zero, size: visible.size)
             imageView.frame = CGRect(origin: CGPoint(x: -visible.minX, y: -visible.minY), size: size)
             canvas.frame = imageView.frame
             overlay.frame = imageView.frame
+            windowOverlay.frame = imageView.frame
             scroll.fitImage()
         }
         imageView.image = image
@@ -70,7 +83,11 @@ struct DrawingSurface: UIViewRepresentable {
         }
         overlay.rect = crop?.applying(CGAffineTransform(scaleX: scale, y: scale))
         overlay.isHidden = !cropping
-        canvas.isUserInteractionEnabled = !cropping
+        windowOverlay.rects = windows.map { CGRect(x: CGFloat($0.x) * scale, y: CGFloat($0.y) * scale, width: CGFloat($0.width) * scale, height: CGFloat($0.height) * scale) }
+        windowOverlay.selection = crop?.applying(CGAffineTransform(scaleX: scale, y: scale))
+        windowOverlay.isHidden = !selectingWindow
+        windowOverlay.setNeedsDisplay()
+        canvas.isUserInteractionEnabled = !cropping && !selectingWindow
         overlay.setNeedsDisplay()
     }
 
@@ -92,6 +109,7 @@ struct DrawingSurface: UIViewRepresentable {
 
         func scrollViewDidZoom(_ scrollView: UIScrollView) {
             scrollView.viewWithTag(3)?.setNeedsDisplay()
+            scrollView.viewWithTag(4)?.setNeedsDisplay()
         }
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
@@ -121,6 +139,43 @@ struct DrawingSurface: UIViewRepresentable {
         func toolPickerSelectedToolDidChange(_: PKToolPicker) {
             applyWidth()
         }
+    }
+}
+
+final class WindowOverlay: UIView {
+    var rects: [CGRect] = []
+    var selection: CGRect?
+    var selected: ((CGPoint) -> Void)?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isOpaque = false
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tap(_:))))
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError()
+    }
+
+    override func draw(_: CGRect) {
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+        let zoom = (superview?.superview as? UIScrollView)?.zoomScale ?? 1
+        context.setLineWidth(1 / max(zoom, 0.01))
+        context.setStrokeColor(UIColor.white.cgColor)
+        rects.forEach { context.stroke($0) }
+        if let selection {
+            context.setFillColor(UIColor.systemBlue.withAlphaComponent(0.25).cgColor)
+            context.fill(selection)
+            context.setStrokeColor(UIColor.systemBlue.cgColor)
+            context.setLineWidth(3 / max(zoom, 0.01))
+            context.stroke(selection)
+        }
+    }
+
+    @objc private func tap(_ gesture: UITapGestureRecognizer) {
+        selected?(gesture.location(in: self))
     }
 }
 

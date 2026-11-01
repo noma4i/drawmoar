@@ -5,6 +5,7 @@ import UIKit
 
 @MainActor @Observable final class EditorModel {
     var image: UIImage?
+    private(set) var windows: [WindowFrame] = []
     private var session = UUID().uuidString
     private var captureDate = Date()
     private(set) var history: [CaptureEntry] = []
@@ -127,13 +128,14 @@ import UIKit
                     selectedDisplay = nil
                 }
             }
-            let data = try await client.capture(displayId: selectedDisplay)
-            guard let image = UIImage(data: data) else { throw MacError.unexpected }
+            let capture = try await client.capture(displayId: selectedDisplay)
+            guard let image = UIImage(data: capture.png) else { throw MacError.unexpected }
             if let current = currentEntry() {
                 try save(current)
             }
             resetting = true
             self.image = image
+            windows = capture.windows
             drawing = PKDrawing()
             crop = nil
             resetting = false
@@ -157,7 +159,7 @@ import UIKit
 
     private func currentEntry() -> CaptureEntry? {
         guard let image else { return nil }
-        return CaptureEntry(id: session, date: captureDate, image: image, drawing: drawing, crop: crop)
+        return CaptureEntry(id: session, date: captureDate, image: image, drawing: drawing, crop: crop, windows: windows)
     }
 
     private func save(_ entry: CaptureEntry) throws {
@@ -181,6 +183,7 @@ import UIKit
             readyRevision = nil
             resetting = true
             image = entry.image
+            windows = entry.windows
             drawing = entry.drawing
             crop = entry.crop
             session = entry.id
@@ -203,6 +206,7 @@ import UIKit
                 readyRevision = nil
                 resetting = true
                 image = nil
+                windows = []
                 drawing = PKDrawing()
                 crop = nil
                 resetting = false
@@ -216,6 +220,11 @@ import UIKit
         guard crop != rect else { return }
         cropUndo.append(crop)
         crop = rect
+    }
+
+    func window(at point: CGPoint) -> CGRect? {
+        windows.lazy.map { CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) }
+            .first { $0.contains(point) }
     }
 
     func undoCrop() -> Bool {

@@ -9,6 +9,7 @@ struct EditorView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var cropping = false
+    @State private var selectingWindow = false
     @State private var cropDraft: CGRect?
     @State private var showHistory = false
     @State private var canvas = PKCanvasView()
@@ -63,6 +64,7 @@ struct EditorView: View {
                 Button {
                     showHistory = false
                     cropping = false
+                    selectingWindow = false
                     Task { await model.select(entry) }
                 } label: {
                     HStack {
@@ -87,7 +89,11 @@ struct EditorView: View {
                 Text(error).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true).padding(4)
             }
             if let image = model.image {
-                DrawingSurface(image: image, drawing: $model.drawing, crop: $cropDraft, appliedCrop: model.crop, cropping: cropping, canvas: canvas, lineWidth: model.lineWidth)
+                DrawingSurface(image: image, drawing: $model.drawing, crop: $cropDraft, appliedCrop: model.crop, cropping: cropping, selectingWindow: selectingWindow, windows: model.windows, selectWindow: { point in
+                    if let rect = model.window(at: point) {
+                        cropDraft = rect
+                    }
+                }, canvas: canvas, lineWidth: model.lineWidth)
             } else {
                 Spacer()
                 if model.busy {
@@ -106,13 +112,14 @@ struct EditorView: View {
                 .labelStyle(.iconOnly)
                 .accessibilityLabel("Settings")
             Spacer(minLength: 0)
-            if cropping {
-                Button("Cancel") { cropping = false; cropDraft = nil }
+            if cropping || selectingWindow {
+                Button("Cancel") { cropping = false; selectingWindow = false; cropDraft = nil }
                 Button("Done") {
                     if let cropDraft {
                         model.applyCrop(cropDraft)
                     }
                     cropping = false
+                    selectingWindow = false
                 }
             } else {
                 Button("History", systemImage: "sidebar.left") { showHistory.toggle() }
@@ -125,6 +132,11 @@ struct EditorView: View {
                     }
                 }
                 .disabled(model.image == nil)
+                Button("Window", systemImage: "macwindow") {
+                    cropDraft = nil
+                    selectingWindow = true
+                }
+                .disabled(model.image == nil || model.windows.isEmpty)
                 divider
                 Button("Undo") {
                     if !model.undoCrop() {

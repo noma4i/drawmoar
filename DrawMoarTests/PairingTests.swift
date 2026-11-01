@@ -60,9 +60,9 @@ import XCTest
 @MainActor private final class PairingCaptureClient: MacCapturing {
     var captures = 0
 
-    func capture(displayId _: UInt32?) async throws -> Data {
+    func capture(displayId _: UInt32?) async throws -> (png: Data, windows: [WindowFrame]) {
         captures += 1
-        return UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).image { _ in }.pngData()!
+        return (UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).image { _ in }.pngData()!, [])
     }
 
     func displays() async throws -> [DisplayInfo] {

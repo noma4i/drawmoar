@@ -1,3 +1,4 @@
+import CompanionKit
 import PencilKit
 import UIKit
 
@@ -7,6 +8,7 @@ struct CaptureEntry: Identifiable {
     let image: UIImage
     let drawing: PKDrawing
     let crop: CGRect?
+    let windows: [WindowFrame]
 }
 
 final class CaptureHistory {
@@ -14,6 +16,7 @@ final class CaptureHistory {
         let id: String
         let date: Date
         let crop: CGRect?
+        let windows: [WindowFrame]?
     }
 
     private let directory: URL
@@ -32,7 +35,7 @@ final class CaptureHistory {
             let imageData = try Data(contentsOf: directory.appendingPathComponent(metadata.id + ".png"))
             guard let image = UIImage(data: imageData) else { throw ImageRenderer.RenderError.invalidImage }
             let drawing = try PKDrawing(data: Data(contentsOf: directory.appendingPathComponent(metadata.id + ".drawing")))
-            return CaptureEntry(id: metadata.id, date: metadata.date, image: image, drawing: drawing, crop: metadata.crop)
+            return CaptureEntry(id: metadata.id, date: metadata.date, image: image, drawing: drawing, crop: metadata.crop, windows: metadata.windows ?? [])
         }.sorted { $0.date > $1.date }
     }
 
@@ -41,7 +44,7 @@ final class CaptureHistory {
         guard let png = entry.image.pngData() else { throw ImageRenderer.RenderError.encoding }
         try png.write(to: directory.appendingPathComponent(entry.id + ".png"), options: .atomic)
         try entry.drawing.dataRepresentation().write(to: directory.appendingPathComponent(entry.id + ".drawing"), options: .atomic)
-        let metadata = Metadata(id: entry.id, date: entry.date, crop: entry.crop)
+        let metadata = Metadata(id: entry.id, date: entry.date, crop: entry.crop, windows: entry.windows)
         try JSONEncoder().encode(metadata).write(to: directory.appendingPathComponent(entry.id + ".json"), options: .atomic)
     }
 
