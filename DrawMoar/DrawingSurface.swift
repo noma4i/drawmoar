@@ -51,6 +51,7 @@ struct DrawingSurface: UIViewRepresentable {
             context.coordinator.parent.selectWindow(CGPoint(x: point.x / scale, y: point.y / scale), confirm)
         }
         content.addSubview(windowOverlay)
+        context.coordinator.picker.colorUserInterfaceStyle = .light
         context.coordinator.picker.setVisible(true, forFirstResponder: canvas)
         context.coordinator.picker.addObserver(canvas)
         context.coordinator.picker.addObserver(context.coordinator)
@@ -200,14 +201,14 @@ final class CropOverlay: UIView {
 
     override func draw(_ bounds: CGRect) {
         guard let rect, let context = UIGraphicsGetCurrentContext() else { return }
-        context.setFillColor(UIColor.black.withAlphaComponent(0.4).cgColor)
+        context.setFillColor(UIColor.systemGray.withAlphaComponent(0.4).cgColor)
         context.addRect(bounds)
         context.addRect(rect)
         context.drawPath(using: .eoFill)
         let zoom = (superview?.superview as? UIScrollView)?.zoomScale ?? 1
         let unit = 1 / max(zoom, 0.01)
-        context.setShadow(offset: .zero, blur: 2 * unit, color: UIColor.black.cgColor)
-        context.setStrokeColor(UIColor.white.cgColor)
+        context.setShadow(offset: .zero, blur: 2 * unit, color: UIColor.label.resolvedColor(with: traitCollection).cgColor)
+        context.setStrokeColor(UIColor.systemBackground.resolvedColor(with: traitCollection).cgColor)
         context.setLineWidth(1.5 * unit)
         context.stroke(rect)
         context.setShadow(offset: .zero, blur: 0, color: nil)
@@ -219,11 +220,11 @@ final class CropOverlay: UIView {
             path.addLine(to: point)
             path.addLine(to: CGPoint(x: point.x, y: point.y + dy * 24 * unit))
             context.addPath(path)
-            context.setStrokeColor(UIColor.black.cgColor)
+            context.setStrokeColor(UIColor.label.resolvedColor(with: traitCollection).cgColor)
             context.setLineWidth(6 * unit)
             context.strokePath()
             context.addPath(path)
-            context.setStrokeColor(UIColor.white.cgColor)
+            context.setStrokeColor(UIColor.systemBackground.resolvedColor(with: traitCollection).cgColor)
             context.setLineWidth(4 * unit)
             context.strokePath()
         }

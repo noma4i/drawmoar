@@ -4,6 +4,18 @@ import PencilKit
 import XCTest
 
 @MainActor final class EditorTests: XCTestCase {
+    func testAppearanceDefaultsPersistsAndMapsToColorScheme() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        let model = EditorModel(client: nil, defaults: defaults)
+        XCTAssertEqual(model.appearance, .system)
+        XCTAssertNil(model.appearance.colorScheme)
+        model.appearance = .dark
+        let restored = EditorModel(client: nil, defaults: defaults)
+        XCTAssertEqual(restored.appearance, .dark)
+        XCTAssertEqual(restored.appearance.colorScheme, .dark)
+        XCTAssertEqual(Appearance.light.colorScheme, .light)
+    }
+
     func testFitCentersCropAndNewImageResetsZoom() {
         let area = CGSize(width: 402, height: 500)
         let crop = CGRect(x: 2500, y: 1400, width: 1000, height: 500)

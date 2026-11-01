@@ -12,6 +12,13 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Appearance") {
+                    Picker("Appearance", selection: $model.appearance) {
+                        Text("System").tag(Appearance.system)
+                        Text("Light").tag(Appearance.light)
+                        Text("Dark").tag(Appearance.dark)
+                    }
+                }
                 Section("Mac") {
                     if let mac = model.pairing {
                         LabeledContent(mac.macName, value: browser.macs.contains(where: { $0.name == mac.macName }) ? "Available" : "Unavailable")

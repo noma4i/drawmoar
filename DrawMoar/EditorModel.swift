@@ -1,7 +1,20 @@
 import CompanionKit
 import Observation
 import PencilKit
+import SwiftUI
 import UIKit
+
+enum Appearance: String, CaseIterable {
+    case system, light, dark
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+}
 
 @MainActor @Observable final class EditorModel {
     var image: UIImage?
@@ -31,6 +44,10 @@ import UIKit
 
     var displays: [DisplayInfo] = []
     var displayError: String?
+    var appearance: Appearance {
+        didSet { defaults.set(appearance.rawValue, forKey: "appearance") }
+    }
+
     var selectedDisplay: UInt32? {
         didSet {
             if let selectedDisplay {
@@ -65,6 +82,7 @@ import UIKit
         self.client = client
         self.pairing = pairing
         self.defaults = defaults
+        appearance = Appearance(rawValue: defaults.string(forKey: "appearance") ?? "") ?? .system
         self.deletePairing = deletePairing
         self.delay = delay
         let savedWidth = CGFloat(defaults.double(forKey: "lineWidth"))

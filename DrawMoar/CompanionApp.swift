@@ -22,6 +22,7 @@ import SwiftUI
                     ProgressView()
                 }
             }
+            .preferredColorScheme(model?.appearance.colorScheme)
             .task {
                 guard model == nil else { return }
                 do {
