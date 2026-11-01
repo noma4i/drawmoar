@@ -52,6 +52,12 @@ If more than one device is connected, pass its name or identifier: `scripts/devi
 
 On the Mac, open ClipMoar -> Settings -> Companion -> Pair device. Scan the QR code with the device camera or the scanner in DrawMoar. Keep the Mac and device on the same local network. Traffic uses TLS with a pre-shared key.
 
+## Share an image
+
+In another app, choose Share -> DrawMoar. The image opens in DrawMoar and is sent to the Mac at once.
+
+The share extension uses App Groups, which requires a paid Apple Developer team. Signing the extension can fail with a free Apple ID.
+
 ## How it works
 
 Capture the Mac screen, draw with PencilKit, and crop the image. DrawMoar sends the result to the Mac clipboard 2.5 seconds after the last edit. Press New for another capture.

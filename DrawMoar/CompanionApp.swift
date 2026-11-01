@@ -33,6 +33,10 @@ import SwiftUI
             }
             .onOpenURL { url in
                 Task {
+                    if url.scheme == "drawmoar", url.host == "import" {
+                        await model?.activate()
+                        return
+                    }
                     guard await flow.pair(url: url, paired: paired) != nil else {
                         pairingError = flow.error
                         return
@@ -61,6 +65,10 @@ import SwiftUI
             model = EditorModel(client: nil)
         }
         model?.setPairing(pairing, browser: browser)
-        await model?.newCapture()
+        if model?.imported == true {
+            await model?.sendImportedAfterPairing()
+        } else {
+            await model?.newCapture()
+        }
     }
 }

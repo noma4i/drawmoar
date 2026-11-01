@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.0] - 2026-11-02
+
+### Added
+- Share images to DrawMoar and send them to the Mac immediately
+
 ## [1.0.0] - 2026-11-01
 
 ### Added

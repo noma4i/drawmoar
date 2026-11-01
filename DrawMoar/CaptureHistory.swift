@@ -9,6 +9,7 @@ struct CaptureEntry: Identifiable {
     let drawing: PKDrawing
     let crop: CGRect?
     let windows: [WindowFrame]
+    var imported: Bool = false
 }
 
 struct HistoryEntry: Identifiable {
@@ -17,6 +18,7 @@ struct HistoryEntry: Identifiable {
     let crop: CGRect?
     let windows: [WindowFrame]
     var thumbnail: UIImage?
+    var imported: Bool = false
 }
 
 final class CaptureHistory {
@@ -25,6 +27,7 @@ final class CaptureHistory {
         let date: Date
         let crop: CGRect?
         let windows: [WindowFrame]?
+        let imported: Bool?
     }
 
     private let directory: URL
@@ -41,7 +44,7 @@ final class CaptureHistory {
         return try urls.map { url in
             let metadata = try JSONDecoder().decode(Metadata.self, from: Data(contentsOf: url))
             let thumbnail = UIImage(contentsOfFile: thumbnailURL(metadata.id).path)
-            return HistoryEntry(id: metadata.id, date: metadata.date, crop: metadata.crop, windows: metadata.windows ?? [], thumbnail: thumbnail)
+            return HistoryEntry(id: metadata.id, date: metadata.date, crop: metadata.crop, windows: metadata.windows ?? [], thumbnail: thumbnail, imported: metadata.imported ?? false)
         }.sorted { $0.date > $1.date }
     }
 
@@ -49,7 +52,7 @@ final class CaptureHistory {
         let data = try Data(contentsOf: directory.appendingPathComponent(entry.id + ".png"))
         guard let image = UIImage(data: data) else { throw ImageRenderer.RenderError.invalidImage }
         let drawing = try PKDrawing(data: Data(contentsOf: directory.appendingPathComponent(entry.id + ".drawing")))
-        return CaptureEntry(id: entry.id, date: entry.date, image: image, drawing: drawing, crop: entry.crop, windows: entry.windows)
+        return CaptureEntry(id: entry.id, date: entry.date, image: image, drawing: drawing, crop: entry.crop, windows: entry.windows, imported: entry.imported)
     }
 
     private func thumbnailURL(_ id: String) -> URL {
@@ -67,9 +70,9 @@ final class CaptureHistory {
         try entry.drawing.dataRepresentation().write(to: directory.appendingPathComponent(entry.id + ".drawing"), options: .atomic)
         let thumbnailData = try ImageRenderer.thumbnail(image: entry.image, drawing: entry.drawing, crop: entry.crop)
         try saveThumbnail(thumbnailData, id: entry.id)
-        let metadata = Metadata(id: entry.id, date: entry.date, crop: entry.crop, windows: entry.windows)
+        let metadata = Metadata(id: entry.id, date: entry.date, crop: entry.crop, windows: entry.windows, imported: entry.imported)
         try JSONEncoder().encode(metadata).write(to: directory.appendingPathComponent(entry.id + ".json"), options: .atomic)
-        return HistoryEntry(id: entry.id, date: entry.date, crop: entry.crop, windows: entry.windows, thumbnail: UIImage(data: thumbnailData))
+        return HistoryEntry(id: entry.id, date: entry.date, crop: entry.crop, windows: entry.windows, thumbnail: UIImage(data: thumbnailData), imported: entry.imported)
     }
 
     func delete(_ id: String) throws {

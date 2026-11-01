@@ -1,5 +1,6 @@
 import CompanionKit
 @testable import DrawMoar
+import ImageIO
 import PencilKit
 import XCTest
 
@@ -151,6 +152,56 @@ import XCTest
         XCTAssertEqual(cropped.width, 200)
         XCTAssertEqual(cropped.height, 100)
         XCTAssertLessThan(pixel(cropped, x: 50, y: 30), 200)
+    }
+
+    func testInboxImportsAndKeepsPreviousSession() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let client = FakeClient()
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let shared = UIGraphicsImageRenderer(size: CGSize(width: 17, height: 11), format: format).image { _ in }
+        var inbox: UIImage?
+        let model = try EditorModel(client: client, defaults: XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), historyDirectory: directory, takeInboxImage: {
+            defer { inbox = nil }
+            return inbox
+        })
+        await model.newCapture()
+        let previous = try XCTUnwrap(model.history.first?.id)
+        client.captures = 0
+        inbox = shared
+        await model.activate()
+        XCTAssertEqual(client.captures, 0)
+        XCTAssertEqual(model.image?.size, shared.size)
+        XCTAssertEqual(client.sessions.count, 1)
+        XCTAssertNotEqual(client.sessions.first, previous)
+        XCTAssertTrue(model.history.contains { $0.id == previous })
+        await model.activate()
+        XCTAssertEqual(client.captures, 0)
+        XCTAssertEqual(model.image?.size, shared.size)
+        let imported = try XCTUnwrap(model.history.first { $0.id == client.sessions.first })
+        await model.newCapture()
+        await model.select(imported)
+        let captures = client.captures
+        await model.activate()
+        XCTAssertEqual(client.captures, captures)
+        XCTAssertEqual(model.image?.size, shared.size)
+    }
+
+    func testInboxDownscalesAndRotatesPhoto() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 6000, height: 4000), format: format).image { _ in }
+        let url = directory.appendingPathComponent("photo.jpg")
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithURL(url as CFURL, "public.jpeg" as CFString, 1, nil))
+        try CGImageDestinationAddImage(destination, XCTUnwrap(image.cgImage), [kCGImagePropertyOrientation: 6] as CFDictionary)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        let result = try XCTUnwrap(SharedInbox(directory: directory).takeNewest())
+        XCTAssertEqual(result.size, CGSize(width: 2731, height: 4096))
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
     }
 
     func testActivateCapturesOnlyWithoutEdits() async throws {

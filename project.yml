@@ -17,19 +17,51 @@ targets:
     info:
       path: .build/DrawMoar-Info.plist
       properties:
-        CFBundleShortVersionString: 1.0.0
+        CFBundleShortVersionString: 1.1.0
+        DrawMoarAppGroup: group.${DRAWMOAR_BUNDLE_ID}
         NSLocalNetworkUsageDescription: Connect to ClipMoar on your Mac.
         NSCameraUsageDescription: Scan the pairing code shown on your Mac.
         CFBundleURLTypes:
           - CFBundleURLSchemes: [drawmoar]
         NSBonjourServices: ["_clipmoar._tcp"]
         UILaunchScreen: {}
+    entitlements:
+      path: .build/DrawMoar.entitlements
+      properties:
+        com.apple.security.application-groups: ["group.${DRAWMOAR_BUNDLE_ID}"]
     dependencies:
       - package: CompanionKit
+      - target: DrawMoarShare
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: ${DRAWMOAR_BUNDLE_ID}
+        DEVELOPMENT_TEAM: ${DRAWMOAR_TEAM_ID}
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: '1,2'
+  DrawMoarShare:
+    type: app-extension
+    platform: iOS
+    sources: [DrawMoarShare]
+    info:
+      path: .build/DrawMoarShare-Info.plist
+      properties:
+        CFBundleDisplayName: DrawMoar
+        CFBundleShortVersionString: 1.1.0
+        DrawMoarAppGroup: group.${DRAWMOAR_BUNDLE_ID}
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsImageWithMaxCount: 1
+    entitlements:
+      path: .build/DrawMoarShare.entitlements
+      properties:
+        com.apple.security.application-groups: ["group.${DRAWMOAR_BUNDLE_ID}"]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ${DRAWMOAR_BUNDLE_ID}.Share
         DEVELOPMENT_TEAM: ${DRAWMOAR_TEAM_ID}
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: '1,2'

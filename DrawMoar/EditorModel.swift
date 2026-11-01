@@ -34,6 +34,7 @@ enum Retention: String, CaseIterable {
     private(set) var windows: [WindowFrame] = []
     private var session = UUID().uuidString
     private var captureDate = Date()
+    private(set) var imported = false
     private(set) var history: [HistoryEntry] = []
     private let storage: CaptureHistory
     private(set) var storageSize: Int64 = 0
@@ -89,10 +90,12 @@ enum Retention: String, CaseIterable {
     private let deletePairing: () throws -> Void
     private let delay: () async throws -> Void
     private let render: (UIImage, PKDrawing, CGRect?) throws -> Data
+    private let takeInboxImage: () -> UIImage?
     private let saveCapture: (CaptureHistory, CaptureEntry) throws -> HistoryEntry
     private var debounce: Task<Void, Never>?
     private var revision = 0
     private var readyRevision: Int?
+    private var importing = false
     private var resetting = false
     private var usingTool = false
     private var hasPendingSend = false
@@ -100,7 +103,7 @@ enum Retention: String, CaseIterable {
     private var saveTask: Task<Void, Never>?
     private var historySaveFailed = false
 
-    init(client: (any MacCapturing)?, pairing: Pairing? = nil, defaults: UserDefaults = .standard, deletePairing: @escaping () throws -> Void = PairingStore.delete, delay: @escaping () async throws -> Void = { try await Task.sleep(for: .milliseconds(2500)) }, render: @escaping (UIImage, PKDrawing, CGRect?) throws -> Data = ImageRenderer.png, saveCapture: @escaping (CaptureHistory, CaptureEntry) throws -> HistoryEntry = { try $0.save($1) }, historyDirectory: URL? = nil) {
+    init(client: (any MacCapturing)?, pairing: Pairing? = nil, defaults: UserDefaults = .standard, deletePairing: @escaping () throws -> Void = PairingStore.delete, delay: @escaping () async throws -> Void = { try await Task.sleep(for: .milliseconds(2500)) }, render: @escaping (UIImage, PKDrawing, CGRect?) throws -> Data = ImageRenderer.png, saveCapture: @escaping (CaptureHistory, CaptureEntry) throws -> HistoryEntry = { try $0.save($1) }, historyDirectory: URL? = nil, takeInboxImage: @escaping () -> UIImage? = { SharedInbox().takeNewest() }) {
         let directory = historyDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Captures", isDirectory: true)
         storage = CaptureHistory(directory: directory)
         self.client = client
@@ -112,6 +115,7 @@ enum Retention: String, CaseIterable {
         self.delay = delay
         self.render = render
         self.saveCapture = saveCapture
+        self.takeInboxImage = takeInboxImage
         let savedWidth = CGFloat(defaults.double(forKey: "lineWidth"))
         lineWidth = Self.lineWidths.contains(savedWidth) ? savedWidth : Self.lineWidths[1]
         do { history = try storage.load() } catch { self.error = error.localizedDescription }
@@ -154,8 +158,45 @@ enum Retention: String, CaseIterable {
     }
 
     func activate() async {
-        guard drawing.strokes.isEmpty, crop == nil, !busy else { return }
+        if let image = takeInboxImage() {
+            await importImage(image)
+            return
+        }
+        guard !importing, !imported, drawing.strokes.isEmpty, crop == nil, !busy else { return }
         await refresh()
+    }
+
+    func importImage(_ image: UIImage) async {
+        importing = true
+        revision += 1
+        defer { importing = false }
+        guard await flushHistory() else { return }
+        if let current = currentEntry() {
+            queueSave(current)
+            guard await flushHistory() else { return }
+        }
+        debounce?.cancel()
+        resetting = true
+        self.image = image
+        imported = true
+        windows = []
+        drawing = PKDrawing()
+        crop = nil
+        resetting = false
+        session = UUID().uuidString
+        captureDate = Date()
+        cropUndo = []
+        delivered = false
+        sendError = nil
+        queueSave(currentEntry()!)
+        _ = await flushHistory()
+        hasPendingSend = true
+        readyRevision = revision
+        await sendIfReady()
+    }
+
+    func sendImportedAfterPairing() async {
+        await sendIfReady()
     }
 
     func loadDisplays() async {
@@ -169,6 +210,7 @@ enum Retention: String, CaseIterable {
     func refresh() async {
         guard !busy, let client else { return }
         busy = true
+        let captureRevision = revision
         defer { busy = false }
         do {
             guard await flushHistory() else { return }
@@ -179,13 +221,16 @@ enum Retention: String, CaseIterable {
                 }
             }
             let capture = try await client.capture(displayId: selectedDisplay)
+            guard revision == captureRevision else { return }
             guard let image = UIImage(data: capture.png) else { throw MacError.unexpected }
             if let current = currentEntry() {
                 queueSave(current)
                 guard await flushHistory() else { return }
             }
+            guard revision == captureRevision else { return }
             resetting = true
             self.image = image
+            imported = false
             windows = capture.windows
             drawing = PKDrawing()
             crop = nil
@@ -212,7 +257,7 @@ enum Retention: String, CaseIterable {
 
     private func currentEntry() -> CaptureEntry? {
         guard let image else { return nil }
-        return CaptureEntry(id: session, date: captureDate, image: image, drawing: drawing, crop: crop, windows: windows)
+        return CaptureEntry(id: session, date: captureDate, image: image, drawing: drawing, crop: crop, windows: windows, imported: imported)
     }
 
     private func queueSave(_ entry: CaptureEntry) {
@@ -284,6 +329,7 @@ enum Retention: String, CaseIterable {
             hasPendingSend = false
             resetting = true
             image = capture.image
+            imported = capture.imported
             windows = capture.windows
             drawing = capture.drawing
             crop = capture.crop
@@ -346,6 +392,7 @@ enum Retention: String, CaseIterable {
         hasPendingSend = false
         resetting = true
         image = nil
+        imported = false
         windows = []
         drawing = PKDrawing()
         crop = nil
