@@ -50,6 +50,7 @@ struct SettingsView: View {
                     model.setPairing(pair, browser: browser)
                     changed = true
                     pairing = false
+                    Task { await model.refresh() }
                 }
             }
         }

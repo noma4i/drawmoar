@@ -18,6 +18,9 @@ targets:
       path: DrawMoar/Info.plist
       properties:
         NSLocalNetworkUsageDescription: Connect to ClipMoar on your Mac.
+        NSCameraUsageDescription: Scan the pairing code shown on your Mac.
+        CFBundleURLTypes:
+          - CFBundleURLSchemes: [drawmoar]
         NSBonjourServices: ["_clipmoar._tcp"]
         UILaunchScreen: {}
     dependencies:

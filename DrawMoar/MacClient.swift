@@ -11,13 +11,14 @@ protocol MacCapturing {
 }
 
 enum MacError: LocalizedError {
-    case unavailable, disconnected, unexpected, wrongPIN, remote(String)
+    case unavailable, disconnected, unexpected, expiredInvite, invalidInvite, remote(String)
     var errorDescription: String? {
         switch self {
         case .unavailable: "Mac not found on the local network"
         case .disconnected: "Connection closed"
         case .unexpected: "Unexpected response from Mac"
-        case .wrongPIN: "Wrong PIN"
+        case .expiredInvite: "Pairing link expired. Open Pair device on your Mac and try again."
+        case .invalidInvite: "Invalid pairing link"
         case let .remote(message): message
         }
     }
@@ -32,21 +33,20 @@ enum MacError: LocalizedError {
         self.browser = browser
     }
 
-    static func pair(mac: Mac, pin: String) async throws -> Pairing {
-        let id = UUID().uuidString
-        let connection = CompanionConnection(NWConnection(to: mac.endpoint, using: CompanionTLS.clientParameters(identity: "pair", key: CompanionTLS.pairingKey(pin: pin))))
+    static func pair(mac: Mac, invite: PairingInvite, deviceId: String) async throws -> Pairing {
+        let connection = CompanionConnection(NWConnection(to: mac.endpoint, using: CompanionTLS.clientParameters(identity: "pair", key: CompanionTLS.pairingKey(secret: invite.secret))))
         defer { connection.connection.cancel() }
         var iterator = connection.messages.makeAsyncIterator()
         do {
-            try await connection.send(.pairRequest(deviceId: id, deviceName: UIDevice.current.name))
+            try await connection.send(.pairRequest(deviceId: deviceId, deviceName: UIDevice.current.name))
             guard let response = try await iterator.next() else { throw MacError.disconnected }
             switch response {
-            case let .pairGranted(key): return Pairing(deviceId: id, key: key, macName: mac.name)
+            case let .pairGranted(key): return Pairing(deviceId: deviceId, key: key, macName: mac.name)
             case let .error(message): throw MacError.remote(message)
             default: throw MacError.unexpected
             }
         } catch let error as MacError { throw error }
-        catch { throw MacError.wrongPIN }
+        catch { throw MacError.expiredInvite }
     }
 
     func capture(displayId: UInt32?) async throws -> Data {

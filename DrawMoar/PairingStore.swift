@@ -10,6 +10,27 @@ struct Pairing: Codable {
 enum PairingStore {
     static let service = "com.noma4i.DrawMoar.pairing"
 
+    static func deviceId() throws -> String {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: "deviceId"]
+        var read = query
+        read[kSecReturnData as String] = true
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(read as CFDictionary, &result)
+        if status == errSecSuccess, let data = result as? Data, let id = String(data: data, encoding: .utf8) {
+            return id
+        }
+        guard status == errSecItemNotFound else { throw StoreError(status: status) }
+        let id = try load()?.deviceId ?? UUID().uuidString
+        var insert = query
+        insert[kSecValueData as String] = Data(id.utf8)
+        let added = SecItemAdd(insert as CFDictionary, nil)
+        if added == errSecDuplicateItem {
+            return try deviceId()
+        }
+        guard added == errSecSuccess else { throw StoreError(status: added) }
+        return id
+    }
+
     static func load() throws -> Pairing? {
         var query = baseQuery
         query[kSecReturnData as String] = true
