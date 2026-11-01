@@ -1,12 +1,20 @@
+<p align="center">
+  <img src="assets/header.png" alt="DrawMoar" width="400">
+</p>
+
 # DrawMoar
 
 iPhone/iPad companion for [ClipMoar](https://github.com/noma4i/clipmoar): grabs the current Mac screen, lets you draw and crop on it, and copies the result to the Mac clipboard.
 
+<p align="center">
+  <img src="screenshots/editor.png" alt="DrawMoar editor" width="300">
+</p>
+
 ## How it works
 
-1. On the Mac: ClipMoar -> Settings -> Companion -> enable, grant Screen Recording, press Pair device.
-2. On the iPhone/iPad: open DrawMoar, pick the Mac, enter the 6-digit PIN.
-3. Every launch opens straight into a fresh screenshot. Draw with PencilKit, crop, press Copy to Mac, then paste on the Mac.
+1. On the Mac: ClipMoar -> Settings -> Companion -> Pair device, then scan the QR code with the iPhone/iPad camera or DrawMoar.
+2. Draw and crop the screenshot. Your edits are sent to the Mac clipboard automatically.
+3. Press New to capture another screenshot. Browse screenshot history to return to earlier captures.
 
 The gear icon opens settings: paired Mac (pair another, forget) and screen (Auto = screen under the cursor, or a fixed display).
 
