@@ -36,8 +36,11 @@ struct SettingsView: View {
                                 .tag(Optional(display.id))
                         }
                     }
-                    .pickerStyle(.inline)
+                    .pickerStyle(.navigationLink)
                     .onChange(of: model.selectedDisplay) { changed = true }
+                    if let error = model.displayError {
+                        Text(error).foregroundStyle(.red)
+                    }
                 }
             }
             .navigationTitle("Settings")
@@ -51,6 +54,7 @@ struct SettingsView: View {
             }
         }
         .task {
+            await model.loadDisplays()
             if model.pairing == nil {
                 pairing = true
             }

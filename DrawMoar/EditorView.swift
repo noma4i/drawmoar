@@ -6,20 +6,19 @@ struct EditorView: View {
     let browser: MacBrowser
     @Environment(\.scenePhase) private var scenePhase
     @State private var cropping = false
-    @State private var showCopied = false
     @State private var canvas = PKCanvasView()
     @State private var showSettings = false
     @State private var settingsChanged = false
-    @State private var pickerHeight: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
             toolbarButtons.padding(8)
+            bottomBar.background(.regularMaterial)
             if let error = model.error {
                 Text(error).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true).padding(4)
             }
             if let image = model.image {
-                DrawingSurface(image: image, drawing: $model.drawing, crop: $model.crop, cropping: cropping, canvas: canvas, lineWidth: model.lineWidth, pickerHeight: $pickerHeight)
+                DrawingSurface(image: image, drawing: $model.drawing, crop: $model.crop, cropping: cropping, canvas: canvas, lineWidth: model.lineWidth)
             } else {
                 Spacer()
                 if model.busy {
@@ -30,21 +29,9 @@ struct EditorView: View {
                 Spacer()
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            bottomBar.padding(.bottom, pickerHeight).background(.regularMaterial)
-        }
-        .overlay(alignment: .top) {
-            if showCopied {
-                Text("Copied on Mac").fixedSize(horizontal: false, vertical: true)
-                    .padding().background(.regularMaterial, in: Capsule()).padding()
-            }
-        }
         .sensoryFeedback(.success, trigger: model.copied)
-        .onChange(of: model.copied) {
-            showCopied = true
-            Task { try? await Task.sleep(for: .seconds(2)); showCopied = false }
-        }
         .task {
+            UIApplication.shared.isIdleTimerDisabled = scenePhase == .active
             if model.pairing == nil {
                 showSettings = true
             } else {
@@ -60,6 +47,7 @@ struct EditorView: View {
             SettingsView(model: model, browser: browser, changed: $settingsChanged)
         }
         .onChange(of: scenePhase) {
+            UIApplication.shared.isIdleTimerDisabled = scenePhase == .active
             if scenePhase == .active {
                 Task { await model.activate() }
             }
@@ -106,28 +94,27 @@ struct EditorView: View {
                 Button { model.setLineWidth(width) } label: {
                     Circle().fill(model.lineWidth == width ? Color.accentColor : Color.secondary)
                         .frame(width: CGFloat(6 + index * 4), height: CGFloat(6 + index * 4))
-                        .frame(width: 32, height: 44)
+                        .frame(width: 44, height: 44)
                         .background(model.lineWidth == width ? Color.accentColor.opacity(0.15) : .clear, in: Capsule())
                 }
                 .accessibilityLabel("Line width \(index + 1)")
                 .accessibilityAddTraits(model.lineWidth == width ? .isSelected : [])
             }
             Spacer(minLength: 4)
-            Button { Task { await model.copy() } } label: {
-                HStack {
-                    if model.sending {
-                        ProgressView()
-                    } else {
-                        Image(systemName: "doc.on.doc")
+            HStack {
+                if model.sending {
+                    ProgressView()
+                    Text("Sending…")
+                } else if model.delivered {
+                    Text("On Mac ✓")
+                } else {
+                    Text("Not sent")
+                    if let error = model.sendError {
+                        Text(error).foregroundStyle(.red)
                     }
-                    Text("Copy to Mac")
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
-            .controlSize(.large)
-            .shadow(radius: 3, y: 2)
-            .disabled(model.image == nil || model.busy)
+            .font(.caption)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)

@@ -92,19 +92,56 @@ import XCTest
         XCTAssertEqual(client.captures, 1)
     }
 
-    func testCopiesShareSessionUntilNextCapture() async throws {
+    func testEditsDebounceAndUseNewSessionForNextCapture() async throws {
         let client = FakeClient()
+        let clock = TestDelay()
         let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
-        let model = EditorModel(client: client, defaults: defaults)
+        let model = EditorModel(client: client, defaults: defaults, delay: { try await clock.wait() })
         await model.activate()
-        await model.copy()
-        await model.copy()
+        XCTAssertTrue(client.sessions.isEmpty)
+        model.crop = CGRect(x: 0, y: 0, width: 1, height: 1)
+        await Task.yield()
+        model.crop = CGRect(x: 0, y: 0, width: 2, height: 1)
+        await Task.yield()
+        model.crop = CGRect(x: 0, y: 0, width: 2, height: 2)
+        await Task.yield()
+        clock.advance()
+        await clock.settle()
+        XCTAssertEqual(client.sessions.count, 1)
+        XCTAssertEqual(try UIImage(data: XCTUnwrap(client.images.first))?.size, CGSize(width: 2, height: 2))
         await model.newCapture()
-        await model.copy()
-        XCTAssertEqual(client.sessions.count, 3)
-        guard client.sessions.count == 3 else { return }
-        XCTAssertEqual(client.sessions[0], client.sessions[1])
-        XCTAssertNotEqual(client.sessions[1], client.sessions[2])
+        await clock.settle()
+        XCTAssertEqual(client.sessions.count, 1)
+        model.crop = CGRect(x: 0, y: 0, width: 1, height: 1)
+        await Task.yield()
+        clock.advance()
+        await clock.settle()
+        XCTAssertEqual(client.sessions.count, 2)
+        guard client.sessions.count == 2 else { return }
+        XCTAssertNotEqual(client.sessions[0], client.sessions[1])
+    }
+
+    func testEditDuringSendIsSentOnceAfterCompletion() async throws {
+        let client = FakeClient()
+        client.holdPaste = true
+        let clock = TestDelay()
+        let model = try EditorModel(client: client, defaults: XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), delay: { try await clock.wait() })
+        await model.activate()
+        model.crop = CGRect(x: 0, y: 0, width: 1, height: 1)
+        await Task.yield()
+        clock.advance()
+        await clock.settle()
+        XCTAssertEqual(client.sessions.count, 1)
+        model.crop = CGRect(x: 0, y: 0, width: 2, height: 2)
+        await Task.yield()
+        clock.advance()
+        await clock.settle()
+        XCTAssertEqual(client.sessions.count, 1)
+        client.finishPaste()
+        await clock.settle()
+        XCTAssertEqual(client.sessions.count, 2)
+        XCTAssertEqual(client.sessions.first, client.sessions.last)
+        client.finishPaste()
     }
 
     func testSelectedDisplayIsPersistedAndMissingDisplayFallsBackToAuto() async throws {
@@ -149,6 +186,9 @@ import XCTest
     var displayRequests: [UInt32?] = []
     var availableDisplays: [DisplayInfo] = []
     var sessions: [String] = []
+    var images: [Data] = []
+    var holdPaste = false
+    var pendingPaste: CheckedContinuation<Void, Never>?
     func capture(displayId: UInt32?) async throws -> Data {
         captures += 1
         displayRequests.append(displayId)
@@ -159,7 +199,35 @@ import XCTest
         availableDisplays
     }
 
-    func paste(_: Data, session: String) async throws {
+    func paste(_ data: Data, session: String) async throws {
         sessions.append(session)
+        images.append(data)
+        if holdPaste {
+            await withCheckedContinuation { pendingPaste = $0 }
+        }
+    }
+
+    func finishPaste() {
+        pendingPaste?.resume(); pendingPaste = nil
+    }
+}
+
+@MainActor private final class TestDelay {
+    private var waits: [CheckedContinuation<Void, Error>] = []
+
+    func wait() async throws {
+        try await withCheckedThrowingContinuation { waits.append($0) }
+    }
+
+    func advance() {
+        let pending = waits
+        waits.removeAll()
+        pending.forEach { $0.resume() }
+    }
+
+    func settle() async {
+        for _ in 0 ..< 20 {
+            await Task.yield()
+        }
     }
 }

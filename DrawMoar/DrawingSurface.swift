@@ -8,7 +8,6 @@ struct DrawingSurface: UIViewRepresentable {
     let cropping: Bool
     let canvas: PKCanvasView
     let lineWidth: CGFloat
-    @Binding var pickerHeight: CGFloat
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -119,23 +118,6 @@ struct DrawingSurface: UIViewRepresentable {
 
         func toolPickerSelectedToolDidChange(_: PKToolPicker) {
             applyWidth()
-        }
-
-        func toolPickerFramesObscuredDidChange(_: PKToolPicker) {
-            updatePickerHeight()
-        }
-
-        func toolPickerVisibilityDidChange(_: PKToolPicker) {
-            updatePickerHeight()
-        }
-
-        private func updatePickerHeight() {
-            guard let window = parent.canvas.window else { return }
-            let frame = picker.frameObscured(in: window)
-            let height = frame.isNull ? 0 : max(0, window.bounds.maxY - frame.minY - window.safeAreaInsets.bottom)
-            if parent.pickerHeight != height {
-                DispatchQueue.main.async { self.parent.pickerHeight = height }
-            }
         }
     }
 }
