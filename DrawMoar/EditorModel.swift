@@ -5,6 +5,7 @@ import UIKit
 
 @MainActor @Observable final class EditorModel {
     var image: UIImage?
+    private var session = UUID().uuidString
     var drawing = PKDrawing()
     var crop: CGRect?
     var displays: [DisplayInfo] = []
@@ -47,8 +48,12 @@ import UIKit
         defaults.set(Double(width), forKey: "lineWidth")
     }
 
-    static func inkingTool(_ tool: PKInkingTool, width: CGFloat) -> PKInkingTool {
-        PKInkingTool(tool.inkType, color: tool.color, width: width)
+    nonisolated static func canvasScale(for size: CGSize) -> CGFloat {
+        min(1, 2048 / max(size.width, size.height))
+    }
+
+    static func inkingTool(_ tool: PKInkingTool, width: CGFloat, scale: CGFloat) -> PKInkingTool {
+        PKInkingTool(tool.inkType, color: tool.color, width: width * scale)
     }
 
     func forgetMac() {
@@ -86,6 +91,7 @@ import UIKit
             let data = try await client.capture(displayId: selectedDisplay)
             guard let image = UIImage(data: data) else { throw MacError.unexpected }
             self.image = image
+            session = UUID().uuidString
             error = nil
             do { displays = try await client.displays() } catch { self.error = error.localizedDescription }
         } catch { self.error = error.localizedDescription }
@@ -104,7 +110,7 @@ import UIKit
         defer { busy = false; sending = false }
         do {
             let data = try ImageRenderer.png(image: image, drawing: drawing, crop: crop)
-            try await client.paste(data)
+            try await client.paste(data, session: session)
             copied += 1
             error = nil
         } catch { self.error = error.localizedDescription }

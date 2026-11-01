@@ -7,7 +7,7 @@ import UIKit
 protocol MacCapturing {
     func capture(displayId: UInt32?) async throws -> Data
     func displays() async throws -> [DisplayInfo]
-    func paste(_ data: Data) async throws
+    func paste(_ data: Data, session: String) async throws
 }
 
 enum MacError: LocalizedError {
@@ -59,8 +59,8 @@ enum MacError: LocalizedError {
         return displays
     }
 
-    func paste(_ data: Data) async throws {
-        guard case .ok = try await request(.paste(png: data)) else { throw MacError.unexpected }
+    func paste(_ data: Data, session: String) async throws {
+        guard case .ok = try await request(.paste(png: data, session: session)) else { throw MacError.unexpected }
     }
 
     private func request(_ message: Message) async throws -> Message {

@@ -12,10 +12,36 @@ import XCTest
         let restored = EditorModel(client: nil, defaults: defaults)
         XCTAssertEqual(restored.lineWidth, 16)
         let original = PKInkingTool(.marker, color: .red, width: 4)
-        let result = EditorModel.inkingTool(original, width: restored.lineWidth)
+        let result = EditorModel.inkingTool(original, width: restored.lineWidth, scale: 0.4)
         XCTAssertEqual(result.inkType, original.inkType)
         XCTAssertEqual(result.color, original.color)
-        XCTAssertEqual(result.width, 16, accuracy: 0.001)
+        XCTAssertEqual(result.width, 6.4, accuracy: 0.001)
+    }
+
+    func testCanvasScaleLimitsLongestSide() {
+        for (size, expected) in [(CGSize(width: 5120, height: 2880), CGFloat(0.4)),
+                                 (CGSize(width: 1000, height: 500), 1),
+                                 (CGSize(width: 8000, height: 1000), 0.256)]
+        {
+            XCTAssertEqual(EditorModel.canvasScale(for: size), expected, accuracy: 0.0001)
+        }
+    }
+
+    func testRenderLargeImageAtFullResolution() throws {
+        let size = CGSize(width: 5120, height: 2880)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+        }
+        let point = PKStrokePoint(location: CGPoint(x: 1000, y: 560), timeOffset: 0, size: CGSize(width: 8, height: 8), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+        let end = PKStrokePoint(location: CGPoint(x: 1004, y: 560), timeOffset: 0.1, size: CGSize(width: 8, height: 8), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+        let drawing = PKDrawing(strokes: [PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: [point, end], creationDate: Date()))])
+        let rendered = try XCTUnwrap(UIImage(data: ImageRenderer.png(image: image, drawing: drawing, crop: nil))?.cgImage)
+        XCTAssertEqual(rendered.width, 5120)
+        XCTAssertEqual(rendered.height, 2880)
+        XCTAssertLessThan(pixel(rendered, x: 2500, y: 1400), 200)
     }
 
     func testRenderAndCropPreservePixelsAndStroke() throws {
@@ -64,6 +90,21 @@ import XCTest
         XCTAssertEqual(client.captures, 1)
     }
 
+    func testCopiesShareSessionUntilNextCapture() async throws {
+        let client = FakeClient()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        let model = EditorModel(client: client, defaults: defaults)
+        await model.activate()
+        await model.copy()
+        await model.copy()
+        await model.newCapture()
+        await model.copy()
+        XCTAssertEqual(client.sessions.count, 3)
+        guard client.sessions.count == 3 else { return }
+        XCTAssertEqual(client.sessions[0], client.sessions[1])
+        XCTAssertNotEqual(client.sessions[1], client.sessions[2])
+    }
+
     func testSelectedDisplayIsPersistedAndMissingDisplayFallsBackToAuto() async throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
         let client = FakeClient()
@@ -105,6 +146,7 @@ import XCTest
     var captures = 0
     var displayRequests: [UInt32?] = []
     var availableDisplays: [DisplayInfo] = []
+    var sessions: [String] = []
     func capture(displayId: UInt32?) async throws -> Data {
         captures += 1
         displayRequests.append(displayId)
@@ -115,5 +157,7 @@ import XCTest
         availableDisplays
     }
 
-    func paste(_: Data) async throws {}
+    func paste(_: Data, session: String) async throws {
+        sessions.append(session)
+    }
 }

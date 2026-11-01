@@ -34,7 +34,10 @@ struct DrawingSurface: UIViewRepresentable {
         content.addSubview(canvas)
         let overlay = CropOverlay()
         overlay.tag = 3
-        overlay.changed = { rect in context.coordinator.parent.crop = rect }
+        overlay.changed = { rect in
+            let scale = context.coordinator.canvasScale
+            context.coordinator.parent.crop = rect.applying(CGAffineTransform(scaleX: 1 / scale, y: 1 / scale))
+        }
         content.addSubview(overlay)
         context.coordinator.picker.setVisible(true, forFirstResponder: canvas)
         context.coordinator.picker.addObserver(canvas)
@@ -50,7 +53,8 @@ struct DrawingSurface: UIViewRepresentable {
         guard let cgImage = image.cgImage, let content = scroll.viewWithTag(1),
               let imageView = content.viewWithTag(2) as? UIImageView,
               let overlay = content.viewWithTag(3) as? CropOverlay else { return }
-        let size = CGSize(width: cgImage.width, height: cgImage.height)
+        let scale = EditorModel.canvasScale(for: CGSize(width: cgImage.width, height: cgImage.height))
+        let size = CGSize(width: CGFloat(cgImage.width) * scale, height: CGFloat(cgImage.height) * scale)
         if content.bounds.size != size {
             content.frame = CGRect(origin: .zero, size: size)
             imageView.frame = content.bounds
@@ -67,7 +71,7 @@ struct DrawingSurface: UIViewRepresentable {
         if canvas.drawing != drawing {
             canvas.drawing = drawing
         }
-        overlay.rect = crop
+        overlay.rect = crop?.applying(CGAffineTransform(scaleX: scale, y: scale))
         overlay.isHidden = !cropping
         canvas.isUserInteractionEnabled = !cropping
         overlay.setNeedsDisplay()
@@ -76,6 +80,11 @@ struct DrawingSurface: UIViewRepresentable {
     final class Coordinator: NSObject, UIScrollViewDelegate, PKCanvasViewDelegate, PKToolPickerObserver {
         var parent: DrawingSurface
         let picker = PKToolPicker()
+        var canvasScale: CGFloat {
+            guard let image = parent.image.cgImage else { return 1 }
+            return EditorModel.canvasScale(for: CGSize(width: image.width, height: image.height))
+        }
+
         init(_ parent: DrawingSurface) {
             self.parent = parent
         }
@@ -90,7 +99,7 @@ struct DrawingSurface: UIViewRepresentable {
 
         func applyWidth() {
             if let tool = canvasInkingTool() {
-                let adjusted = EditorModel.inkingTool(tool, width: parent.lineWidth)
+                let adjusted = EditorModel.inkingTool(tool, width: parent.lineWidth, scale: canvasScale)
                 if (parent.canvas.tool as? PKInkingTool) != adjusted {
                     parent.canvas.tool = adjusted
                 }
