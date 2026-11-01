@@ -90,12 +90,9 @@ struct EditorView: View {
             }
             if let image = model.image {
                 DrawingSurface(image: image, drawing: $model.drawing, crop: $cropDraft, appliedCrop: model.crop, cropping: cropping, selectingWindow: selectingWindow, windows: model.windows, selectWindow: { point, confirm in
-                    if let rect = model.window(at: point) {
-                        cropDraft = rect
-                        if confirm {
-                            model.applyCrop(rect)
-                            selectingWindow = false
-                        }
+                    cropDraft = model.selectWindow(at: point, confirm: confirm)
+                    if confirm, cropDraft != nil {
+                        selectingWindow = false
                     }
                 }, canvas: canvas, lineWidth: model.lineWidth)
             } else {
@@ -137,6 +134,7 @@ struct EditorView: View {
                 }
                 .disabled(model.image == nil)
                 Button("Window", systemImage: "macwindow") {
+                    model.resetWindowSelection()
                     cropDraft = nil
                     selectingWindow = true
                 }

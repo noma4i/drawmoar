@@ -252,8 +252,11 @@ import XCTest
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let client = FakeClient()
+        let leaf = WindowFrame(x: 2, y: 2, width: 1, height: 1, app: "Front", title: "Leaf")
+        let part = WindowFrame(x: 2, y: 2, width: 2, height: 2, app: "Front", title: "Part", children: [leaf])
+        let other = WindowFrame(x: 4, y: 1, width: 1, height: 1, app: "Front", title: "Other")
         client.windows = [
-            WindowFrame(x: 1, y: 1, width: 4, height: 4, app: "Front", title: "A"),
+            WindowFrame(x: 1, y: 1, width: 4, height: 4, app: "Front", title: "A", children: [part, other]),
             WindowFrame(x: 3, y: 3, width: 5, height: 5, app: "Back", title: "B"),
         ]
         let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
@@ -265,10 +268,24 @@ import XCTest
         XCTAssertEqual(model.window(at: CGPoint(x: 4, y: 4)), front)
         XCTAssertEqual(model.window(at: CGPoint(x: 7, y: 7)), back)
         XCTAssertNil(model.window(at: CGPoint(x: 9, y: 9)))
-        try model.applyCrop(XCTUnwrap(model.window(at: CGPoint(x: 4, y: 4))))
-        XCTAssertEqual(model.crop, front)
+        let point = CGPoint(x: 2.5, y: 2.5)
+        let partRect = CGRect(x: 2, y: 2, width: 2, height: 2)
+        let leafRect = CGRect(x: 2, y: 2, width: 1, height: 1)
+        let taps: [(CGPoint, CGRect)] = [
+            (point, front), (point, partRect), (point, leafRect), (point, front),
+            (CGPoint(x: 4.5, y: 1.5), front),
+            (CGPoint(x: 7, y: 7), back), (CGPoint(x: 7, y: 7), back),
+            (point, front), (point, partRect),
+        ]
+        for (location, expected) in taps {
+            XCTAssertEqual(model.selectWindow(at: location, confirm: false), expected)
+        }
+        XCTAssertEqual(model.selectWindow(at: point, confirm: true), partRect)
+        XCTAssertEqual(model.crop, partRect)
         XCTAssertTrue(model.undoCrop())
         XCTAssertNil(model.crop)
+        model.resetWindowSelection()
+        XCTAssertEqual(model.selectWindow(at: point, confirm: true), front)
         let restored = EditorModel(client: nil, defaults: defaults, historyDirectory: directory)
         let entry = try XCTUnwrap(restored.history.first)
         XCTAssertEqual(entry.windows, client.windows)

@@ -11,6 +11,8 @@ import UIKit
     private(set) var history: [CaptureEntry] = []
     private let storage: CaptureHistory
     private var cropUndo: [CGRect?] = []
+    private var windowChain: [WindowFrame] = []
+    private var windowDepth = 0
     var drawing = PKDrawing() {
         didSet {
             if drawing != oldValue {
@@ -225,6 +227,41 @@ import UIKit
     func window(at point: CGPoint) -> CGRect? {
         windows.lazy.map { CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) }
             .first { $0.contains(point) }
+    }
+
+    func resetWindowSelection() {
+        windowChain = []
+        windowDepth = 0
+    }
+
+    func selectWindow(at point: CGPoint, confirm: Bool) -> CGRect? {
+        var chain: [WindowFrame] = []
+        var candidates = windows
+        while let frame = candidates.first(where: { windowRect($0).contains(point) }) {
+            chain.append(frame)
+            candidates = frame.children
+        }
+        if confirm {
+            guard let frame = windowChain.indices.contains(windowDepth) ? windowChain[windowDepth] : chain.first else { return nil }
+            let rect = windowRect(frame)
+            applyCrop(rect)
+            return rect
+        }
+        guard !chain.isEmpty else {
+            resetWindowSelection()
+            return nil
+        }
+        if chain == windowChain {
+            windowDepth = (windowDepth + 1) % chain.count
+        } else {
+            windowChain = chain
+            windowDepth = 0
+        }
+        return windowRect(chain[windowDepth])
+    }
+
+    private func windowRect(_ frame: WindowFrame) -> CGRect {
+        CGRect(x: frame.x, y: frame.y, width: frame.width, height: frame.height)
     }
 
     func undoCrop() -> Bool {
