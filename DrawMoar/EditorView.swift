@@ -89,9 +89,13 @@ struct EditorView: View {
                 Text(error).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true).padding(4)
             }
             if let image = model.image {
-                DrawingSurface(image: image, drawing: $model.drawing, crop: $cropDraft, appliedCrop: model.crop, cropping: cropping, selectingWindow: selectingWindow, windows: model.windows, selectWindow: { point in
+                DrawingSurface(image: image, drawing: $model.drawing, crop: $cropDraft, appliedCrop: model.crop, cropping: cropping, selectingWindow: selectingWindow, windows: model.windows, selectWindow: { point, confirm in
                     if let rect = model.window(at: point) {
                         cropDraft = rect
+                        if confirm {
+                            model.applyCrop(rect)
+                            selectingWindow = false
+                        }
                     }
                 }, canvas: canvas, lineWidth: model.lineWidth)
             } else {
