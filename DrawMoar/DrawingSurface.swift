@@ -23,6 +23,7 @@ struct DrawingSurface: UIViewRepresentable {
         let imageView = UIImageView()
         imageView.tag = 2
         content.addSubview(imageView)
+        canvas.overrideUserInterfaceStyle = .light
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
         canvas.isScrollEnabled = false

@@ -5,6 +5,14 @@ import XCTest
 
 @MainActor final class EditorTests: XCTestCase {
     func testRenderAndCropPreservePixelsAndStroke() throws {
+        var result: Result<Void, Error>!
+        UITraitCollection(userInterfaceStyle: .dark).performAsCurrent {
+            result = Result { try checkRenderAndCrop() }
+        }
+        try result.get()
+    }
+
+    private func checkRenderAndCrop() throws {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         let image = UIGraphicsImageRenderer(size: CGSize(width: 400, height: 200), format: format).image { context in
@@ -45,7 +53,7 @@ import XCTest
         var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
         let context = CGContext(data: &bytes, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-        return bytes[((image.height - 1 - y) * image.width + x) * 4]
+        return bytes[(y * image.width + x) * 4]
     }
 }
 

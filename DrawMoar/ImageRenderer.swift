@@ -15,7 +15,9 @@ enum ImageRenderer {
         let rendered = UIGraphicsImageRenderer(size: rect.size, format: format).image { context in
             context.cgContext.translateBy(x: -rect.minX, y: -rect.minY)
             UIImage(cgImage: cgImage).draw(in: bounds)
-            drawing.image(from: bounds, scale: 1).draw(in: bounds)
+            UITraitCollection(userInterfaceStyle: .light).performAsCurrent {
+                drawing.image(from: bounds, scale: 1).draw(in: bounds)
+            }
         }
         guard let data = rendered.pngData() else { throw RenderError.encoding }
         return data
