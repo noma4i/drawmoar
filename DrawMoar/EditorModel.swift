@@ -30,6 +30,12 @@ enum Retention: String, CaseIterable {
 }
 
 @MainActor @Observable final class EditorModel {
+    let voice = VoiceModel()
+    private let recorder = VoiceRecorder()
+    var recording = false
+    private(set) var startingRecording = false
+    var transcribing = false
+    var showVoiceSettings = false
     var image: UIImage?
     private(set) var windows: [WindowFrame] = []
     private var session = UUID().uuidString
@@ -92,6 +98,7 @@ enum Retention: String, CaseIterable {
     private let render: (UIImage, PKDrawing, CGRect?) throws -> Data
     private let takeInboxImage: () -> UIImage?
     private let saveCapture: (CaptureHistory, CaptureEntry) throws -> HistoryEntry
+    private var sendWaiters: [CheckedContinuation<Void, Never>] = []
     private var debounce: Task<Void, Never>?
     private var revision = 0
     private var readyRevision: Int?
@@ -123,6 +130,63 @@ enum Retention: String, CaseIterable {
         migrateThumbnails()
         if let value = defaults.object(forKey: "displayId") as? Int {
             selectedDisplay = UInt32(exactly: value)
+        }
+    }
+
+    func toggleRecording() async {
+        if !recording {
+            guard !startingRecording else { return }
+            guard voice.installed else { showVoiceSettings = true; return }
+            startingRecording = true
+            defer { startingRecording = false }
+            do { try await recorder.start(); recording = true; error = nil }
+            catch { self.error = error.localizedDescription }
+            return
+        }
+        let samples = recorder.stop()
+        let started = recorder.started
+        let duration = Date().timeIntervalSince(started)
+        recording = false
+        transcribing = true
+        defer { transcribing = false }
+        do {
+            let words = try await voice.transcribe(samples)
+            try await sendVoiceNote(words: words, started: started, duration: duration)
+        } catch { self.error = error.localizedDescription }
+    }
+
+    func sendVoiceNote(words: [NoteBuilder.Word], started: Date, duration: Double) async throws {
+        let size = image?.cgImage.map { CGSize(width: $0.width, height: $0.height) } ?? .zero
+        let scale = size == .zero ? 1 : Self.canvasScale(for: size)
+        let strokes = image == nil ? [] : drawing.strokes.map {
+            NoteBuilder.Stroke(start: $0.path.creationDate.timeIntervalSince(started), bounds: $0.renderBounds.applying(CGAffineTransform(scaleX: 1 / scale, y: 1 / scale)))
+        }
+        let note = NoteBuilder.build(words: words, strokes: strokes, windows: windows, size: size, display: displays.first(where: { $0.id == selectedDisplay })?.name, duration: duration)
+        let annotated = try image.map { try ImageRenderer.annotated(image: $0, drawing: drawing, crop: crop, marks: note.marks) } ?? Data()
+        let screenshot = image?.pngData() ?? Data()
+        guard let client else { throw MacError.unavailable([]) }
+        let currentSession = session
+        if sending {
+            await withCheckedContinuation { sendWaiters.append($0) }
+        } else {
+            sending = true
+        }
+        defer {
+            sending = false
+            if !resumeSendWaiter() {
+                Task { await sendIfReady() }
+            }
+        }
+        do { try await client.note(annotated: annotated, screenshot: screenshot, note: note, session: currentSession) }
+        catch let failure as MacError {
+            if case .unavailable = failure {
+                throw failure
+            }
+            try await client.paste(annotated, session: currentSession)
+            error = "Update ClipMoar for voice notes"
+        } catch {
+            try await client.paste(annotated, session: currentSession)
+            self.error = "Update ClipMoar for voice notes"
         }
     }
 
@@ -488,6 +552,13 @@ enum Retention: String, CaseIterable {
         }
     }
 
+    private func resumeSendWaiter() -> Bool {
+        guard !sendWaiters.isEmpty else { return false }
+        sending = true
+        sendWaiters.removeFirst().resume()
+        return true
+    }
+
     private func sendIfReady() async {
         guard !sending, !usingTool, let current = readyRevision, let image, let client else { return }
         readyRevision = nil
@@ -511,7 +582,7 @@ enum Retention: String, CaseIterable {
             }
         }
         sending = false
-        if readyRevision != nil {
+        if !resumeSendWaiter(), readyRevision != nil {
             await sendIfReady()
         }
     }

@@ -8,6 +8,7 @@ protocol MacCapturing {
     func capture(displayId: UInt32?) async throws -> (png: Data, windows: [WindowFrame])
     func displays() async throws -> [DisplayInfo]
     func paste(_ data: Data, session: String) async throws
+    func note(annotated: Data, screenshot: Data, note: Note, session: String) async throws
 }
 
 enum MacError: LocalizedError {
@@ -61,6 +62,10 @@ enum MacError: LocalizedError {
 
     func paste(_ data: Data, session: String) async throws {
         guard case .ok = try await request(.paste(png: data, session: session)) else { throw MacError.unexpected }
+    }
+
+    func note(annotated: Data, screenshot: Data, note: Note, session: String) async throws {
+        guard case .ok = try await request(.note(annotated: annotated, screenshot: screenshot, note: note, session: session)) else { throw MacError.unexpected }
     }
 
     private func request(_ message: Message) async throws -> Message {

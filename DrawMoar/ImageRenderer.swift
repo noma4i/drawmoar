@@ -1,3 +1,4 @@
+import CompanionKit
 import PencilKit
 import UIKit
 
@@ -27,6 +28,10 @@ enum ImageRenderer {
     }
 
     static func png(image: UIImage, drawing: PKDrawing, crop: CGRect?) throws -> Data {
+        try annotated(image: image, drawing: drawing, crop: crop, marks: [])
+    }
+
+    static func annotated(image: UIImage, drawing: PKDrawing, crop: CGRect?, marks: [NoteMark]) throws -> Data {
         guard let cgImage = image.cgImage else { throw RenderError.invalidImage }
         let bounds = CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height)
         let scale = EditorModel.canvasScale(for: bounds.size)
@@ -41,6 +46,20 @@ enum ImageRenderer {
             UIImage(cgImage: cgImage).draw(in: bounds)
             UITraitCollection(userInterfaceStyle: .light).performAsCurrent {
                 fullDrawing.image(from: bounds, scale: 1).draw(in: bounds)
+            }
+            for mark in marks {
+                let left = CGFloat(mark.x) - 28
+                let top = CGFloat(mark.y) - 28
+                let x = max(rect.minX, min(left < rect.minX ? CGFloat(mark.x) : left, rect.maxX - 28))
+                let y = max(rect.minY, min(top < rect.minY ? CGFloat(mark.y) : top, rect.maxY - 28))
+                let chip = CGRect(x: x, y: y, width: 28, height: 28)
+                let path = UIBezierPath(roundedRect: chip.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 6)
+                UIColor.white.setFill(); path.fill()
+                UIColor.darkGray.setStroke(); path.lineWidth = 1; path.stroke()
+                let text = String(mark.number) as NSString
+                let attributes: [NSAttributedString.Key: Any] = [.font: UIFont.boldSystemFont(ofSize: 17), .foregroundColor: UIColor.black]
+                let size = text.size(withAttributes: attributes)
+                text.draw(at: CGPoint(x: chip.midX - size.width / 2, y: chip.midY - size.height / 2), withAttributes: attributes)
             }
         }
         guard let data = rendered.pngData() else { throw RenderError.encoding }

@@ -5,6 +5,9 @@ options:
 packages:
   CompanionKit:
     path: CompanionKit
+  FluidAudio:
+    url: https://github.com/FluidInference/FluidAudio
+    exactVersion: 0.18.2
 targets:
   DrawMoar:
     type: application
@@ -17,9 +20,10 @@ targets:
     info:
       path: .build/DrawMoar-Info.plist
       properties:
-        CFBundleShortVersionString: 1.2.0
+        CFBundleShortVersionString: 1.3.0
         DrawMoarAppGroup: group.${DRAWMOAR_BUNDLE_ID}
         NSLocalNetworkUsageDescription: Connect to ClipMoar on your Mac.
+        NSMicrophoneUsageDescription: Record your voice for notes and dictation.
         NSCameraUsageDescription: Scan the pairing code shown on your Mac.
         CFBundleURLTypes:
           - CFBundleURLSchemes: [drawmoar]
@@ -31,6 +35,7 @@ targets:
         com.apple.security.application-groups: ["group.${DRAWMOAR_BUNDLE_ID}"]
     dependencies:
       - package: CompanionKit
+      - package: FluidAudio
       - target: DrawMoarShare
     settings:
       base:
@@ -47,7 +52,7 @@ targets:
       path: .build/DrawMoarShare-Info.plist
       properties:
         CFBundleDisplayName: DrawMoar
-        CFBundleShortVersionString: 1.2.0
+        CFBundleShortVersionString: 1.3.0
         DrawMoarAppGroup: group.${DRAWMOAR_BUNDLE_ID}
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services

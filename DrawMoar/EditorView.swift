@@ -44,6 +44,10 @@ struct EditorView: View {
         .sheet(isPresented: Binding(get: { showHistory && sizeClass != .regular }, set: { showHistory = $0 })) {
             NavigationStack { historyList.navigationTitle("History").toolbar { Button("Done") { showHistory = false } } }
         }
+        .alert("Parakeet Ultra is not installed", isPresented: $model.showVoiceSettings) {
+            Button("Settings") { flow.showSettings = true }
+            Button("Cancel", role: .cancel) {}
+        } message: { Text("Download it in Settings > Voice.") }
         .onChange(of: scenePhase) {
             UIApplication.shared.isIdleTimerDisabled = scenePhase == .active
             if scenePhase == .background {
@@ -120,6 +124,14 @@ struct EditorView: View {
                 .accessibilityLabel("Settings")
             Button("History", systemImage: "sidebar.left") { showHistory.toggle() }
                 .labelStyle(.iconOnly)
+            if model.transcribing {
+                ProgressView("Transcribing")
+            } else {
+                Button(model.recording ? "Stop recording" : "Record voice", systemImage: model.recording ? "stop.circle" : "mic") { Task { await model.toggleRecording() } }
+                    .labelStyle(.iconOnly)
+                    .disabled(model.startingRecording)
+                    .foregroundStyle(model.recording ? Color.red : Color.primary)
+            }
             Spacer(minLength: 16)
             if cropping || selectingWindow {
                 Button("Cancel") { cropping = false; selectingWindow = false; cropDraft = nil }

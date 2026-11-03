@@ -584,6 +584,8 @@ private final class HistoryWrites {
         availableDisplays
     }
 
+    func note(annotated _: Data, screenshot _: Data, note _: Note, session _: String) async throws {}
+
     func paste(_ data: Data, session: String) async throws {
         sessions.append(session)
         images.append(data)

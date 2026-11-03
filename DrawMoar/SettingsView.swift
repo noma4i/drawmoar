@@ -13,6 +13,20 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Voice") {
+                    LabeledContent("Parakeet Ultra", value: ByteCountFormatter.string(fromByteCount: model.voice.size, countStyle: .file))
+                    if let progress = model.voice.progress {
+                        ProgressView(value: progress)
+                        Button("Cancel") { model.voice.cancel() }
+                    } else if model.voice.installed {
+                        Button("Delete", role: .destructive) { model.voice.delete() }
+                    } else {
+                        Button("Download") { model.voice.download() }
+                    }
+                    if let error = model.voice.error {
+                        Text(error).foregroundStyle(.red)
+                    }
+                }
                 Section("Storage") {
                     LabeledContent("Screenshots", value: "\(model.history.count) - \(ByteCountFormatter.string(fromByteCount: model.storageSize, countStyle: .file))")
                     Picker("Keep screenshots", selection: $model.retention) {

@@ -77,3 +77,7 @@ Install an iOS simulator runtime in Xcode. With exactly one simulator running, u
 - App stops opening after 7 days: with a free Personal Team, run `scripts/device.sh` again to rebuild and reinstall.
 - Mac not found: confirm both devices use the same local network, Local Network access is enabled for DrawMoar, and the macOS firewall allows ClipMoar.
 - Tailscale needs ClipMoar 1.9.0+ (fixed port 47823) and Tailscale running on both devices. Use the address from the pairing QR or enter a Tailscale address in Remote address.
+
+## Voice notes and dictation
+
+Download Parakeet Ultra in Settings under Voice. Tap the microphone to record while drawing, then tap stop to transcribe and send the note to ClipMoar. Marks are numbered and linked to the spoken phrases and window locations. Without a screenshot, DrawMoar sends dictation as text.

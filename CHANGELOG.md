@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.3.0] - 2026-11-03
+
+### Added
+
+- Voice notes with on-device Parakeet Ultra transcription, numbered marks, and dictation.
+
 ## [1.2.0] - 2026-11-02
 
 ### Added

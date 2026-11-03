@@ -129,5 +129,7 @@ import XCTest
         []
     }
 
+    func note(annotated _: Data, screenshot _: Data, note _: Note, session _: String) async throws {}
+
     func paste(_: Data, session _: String) async throws {}
 }
