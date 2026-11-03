@@ -147,7 +147,7 @@ struct EditorView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 leadingToolbar(layout: layout)
-                trailingToolbar
+                trailingToolbar(layout: layout)
             }
         }
     }
@@ -237,33 +237,36 @@ struct EditorView: View {
             barButton("History", "sidebar.left") { history.toggle(regular: sizeClass == .regular) }
         }
         .visibility(.low)
-        ToolbarItem(placement: .topBarLeading) {
-            if layout == .oneRow {
-                modePicker
-            } else {
-                Color.clear.frame(width: 0, height: Self.slot)
-            }
-        }
-        .visibility(.high)
-        ToolbarItem(placement: .principal) {
-            if layout == .oneRow || layout == .oneRowWithPill {
-                Color.clear.frame(width: 0, height: Self.slot)
-            } else {
+        if layout == .oneRow {
+            ToolbarItem(placement: .topBarLeading) {
                 modePicker
             }
+            .visibility(.high)
+        } else if layout == .twoRows {
+            ToolbarItem(placement: .principal) {
+                modePicker
+            }
+            .visibility(.high)
         }
-        .visibility(.high)
     }
 
-    @ToolbarContentBuilder private var trailingToolbar: some ToolbarContent {
+    @ToolbarContentBuilder private func trailingToolbar(layout: ToolRowLayout) -> some ToolbarContent {
         let state = barState
         ToolbarItem(placement: .topBarTrailing) {
             micButton(state)
         }
         .visibility(.high)
-        ToolbarItem(placement: .topBarTrailing) {
-            barButton("Replay", "play.circle", titled: true) { Task { replay = await model.replaySourceForCurrent() } }
-                .disabled(!EditorBarItem.replay.isEnabled(state))
+        if layout == .oneRow {
+            ToolbarItem(placement: .topBarTrailing) {
+                barButton("Replay", "play.circle", titled: true) { Task { replay = await model.replaySourceForCurrent() } }
+                    .disabled(!EditorBarItem.replay.isEnabled(state))
+            }
+            .visibility(.low)
+        } else {
+            ToolbarItem(placement: .topBarTrailing) {
+                barButton("Replay", "play.circle", titled: true) { Task { replay = await model.replaySourceForCurrent() } }
+                    .disabled(!EditorBarItem.replay.isEnabled(state))
+            }
         }
         ToolbarItem(placement: .topBarTrailing) {
             barButton("Crop", "crop", titled: true) { startCrop() }
@@ -275,7 +278,9 @@ struct EditorView: View {
                 .disabled(!EditorBarItem.window.isEnabled(state))
         }
         .visibility(.low)
-        ToolbarSpacer(.fixed, placement: .topBarTrailing)
+        if layout != .oneRow {
+            ToolbarSpacer(.fixed, placement: .topBarTrailing)
+        }
         ToolbarItem(placement: .topBarTrailing) {
             barButton("Undo", "arrow.uturn.backward") { model.undo() }
                 .disabled(!EditorBarItem.undo.isEnabled(state))
@@ -286,7 +291,9 @@ struct EditorView: View {
                 .disabled(!EditorBarItem.redo.isEnabled(state))
         }
         .visibility(.high)
-        ToolbarSpacer(.fixed, placement: .topBarTrailing)
+        if layout != .oneRow {
+            ToolbarSpacer(.fixed, placement: .topBarTrailing)
+        }
         ToolbarItem(placement: .topBarTrailing) {
             barButton("New", "plus.viewfinder", titled: true) { Task { await model.newCapture() } }
         }

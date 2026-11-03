@@ -24,7 +24,7 @@
 
 ### Fixed
 
-- The tool row stays on one line down to 588 pt wide (for example the unfolded Duo in portrait) with the buttons shrinking evenly, and the Draw/Note switch stays visible there: between 588 and 858 pt it sits next to History instead of the centre of the bar.
+- The tool row stays on one line down to 588 pt wide (for example the unfolded Duo in portrait) with the buttons shrinking evenly, and the Draw/Note switch stays visible there with Undo, Redo, and New: between 588 and 858 pt it sits next to History and Replay moves to the overflow menu; no empty toolbar placeholder is drawn.
 - The editor toolbar never changes its items or their positions: Mic, Replay, and Redo are always there and only turn on or off, the mic shows a small spinner in its own slot instead of a large one, and Crop and Window show Cancel and Done in a pill over the canvas instead of replacing the toolbar.
 - The Draw/Note switch is larger (two side-by-side segments, each at least 44 pt high and 72 pt wide, always horizontal and centered on the tool row), and when the screen is wide enough it sits on one line with the tools, colors, widths, and status.
 - The transcript on the phone shows only the time and the phrase, without mark numbers.
