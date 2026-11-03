@@ -37,6 +37,8 @@ struct DrawingSurface: UIViewRepresentable {
         canvas.isScrollEnabled = false
         canvas.drawingPolicy = .anyInput
         canvas.delegate = context.coordinator
+        canvas.gestureRecognizers?.filter { $0 is TouchCancelObserver }.forEach(canvas.removeGestureRecognizer)
+        canvas.addGestureRecognizer(TouchCancelObserver { [weak coordinator = context.coordinator] in coordinator?.parent.setUsingTool(false) })
         content.addSubview(canvas)
         let overlay = CropOverlay()
         overlay.tag = 3
@@ -120,6 +122,29 @@ struct DrawingSurface: UIViewRepresentable {
         func canvasViewDidEndUsingTool(_: PKCanvasView) {
             parent.setUsingTool(false)
         }
+    }
+}
+
+final class TouchCancelObserver: UIGestureRecognizer, UIGestureRecognizerDelegate {
+    private let onCancel: () -> Void
+
+    init(onCancel: @escaping () -> Void) {
+        self.onCancel = onCancel
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+        delegate = self
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesCancelled(touches, with: event)
+        onCancel()
+        state = .failed
+    }
+
+    func gestureRecognizer(_: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith _: UIGestureRecognizer) -> Bool {
+        true
     }
 }
 

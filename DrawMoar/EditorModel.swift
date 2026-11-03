@@ -597,7 +597,6 @@ enum EditorMode: String {
     }
 
     func replaySource(for entry: HistoryEntry) async -> ReplaySource? {
-        setUsingTool(false)
         let storage = storage
         let directory = capturesDirectory
         do {
@@ -611,16 +610,11 @@ enum EditorMode: String {
     }
 
     func replaySourceForCurrent() async -> ReplaySource? {
-        setUsingTool(false)
         if let current = currentEntry() {
             queueSave(current)
         }
         guard await flushHistory(), let entry = history.first(where: { $0.id == session && $0.hasTimeline }) else { return nil }
         return await replaySource(for: entry)
-    }
-
-    func replayClosed() {
-        setUsingTool(false)
     }
 
     func deleteHistory(_ entry: HistoryEntry) async {
@@ -769,6 +763,10 @@ enum EditorMode: String {
         sendError = nil
         readyRevision = nil
         scheduleSend()
+    }
+
+    nonisolated static func interruptsPenStroke(scenePhase: ScenePhase, modalPresented: Bool) -> Bool {
+        scenePhase != .active || modalPresented
     }
 
     func setUsingTool(_ active: Bool) {

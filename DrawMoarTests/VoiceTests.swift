@@ -367,20 +367,30 @@ extension VoiceTests {
         }
     }
 
-    func testDrawSendsAfterReplayOpenedWithStuckTool() async throws {
+    func testCancelledTouchReleasesPenAndSendsPendingDraw() async throws {
         let client = VoiceClient()
         let model = try await replayModel(client)
-        model.setUsingTool(true)
         let source = await model.replaySourceForCurrent()
         XCTAssertNotNil(source)
-        model.replayClosed()
         model.mode = .draw
         client.pasted = nil
-        model.drawing = PKDrawing(strokes: [stroke(at: Date()), stroke(at: Date().addingTimeInterval(1))])
+        model.setUsingTool(true)
+        model.drawing = PKDrawing(strokes: [stroke(at: Date())])
+        var cancelled = 0
+        let observer = TouchCancelObserver { cancelled += 1; model.setUsingTool(false) }
+        observer.touchesCancelled([], with: UIEvent())
+        XCTAssertEqual(cancelled, 1)
         try await waitForPaste(client)
         XCTAssertNotNil(client.pasted)
         XCTAssertTrue(model.delivered)
         XCTAssertFalse(model.sending)
+    }
+
+    func testSceneLeavingActiveInterruptsPenStroke() {
+        XCTAssertTrue(EditorModel.interruptsPenStroke(scenePhase: .inactive, modalPresented: false))
+        XCTAssertTrue(EditorModel.interruptsPenStroke(scenePhase: .background, modalPresented: false))
+        XCTAssertTrue(EditorModel.interruptsPenStroke(scenePhase: .active, modalPresented: true))
+        XCTAssertFalse(EditorModel.interruptsPenStroke(scenePhase: .active, modalPresented: false))
     }
 
     func testReplayOpenedTwiceLeavesNoSendWaiters() async throws {

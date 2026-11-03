@@ -29,7 +29,7 @@
 - The transcript on the phone shows only the time and the phrase, without mark numbers.
 - The tool row fits narrow screens: it splits into two rows (tools and colors, then widths and the status capsule) when one row does not fit, and the status capsule never covers a color or width button. Draw/Note shows the words "Draw" and "Note" in every layout.
 - Folding, unfolding, and rotating the device no longer flashes the two-row tool layout, no longer opens or closes the History sheet by itself, and keeps the drawing, tool, mode, crop, and Replay state.
-- Opening Replay no longer stops sending to the Mac: a pen stroke that never reported its end is cleared when Replay opens or closes, so auto-send in Draw mode and voice notes in Note mode resume and the status goes back to "Sending…" and "On Mac ✓".
+- Sending to the Mac no longer stops after Replay, Settings, History, an alert, or leaving the app: a pen stroke whose touch was cancelled is always ended, so auto-send in Draw mode and voice notes in Note mode resume and the status goes back to "Sending…" and "On Mac ✓".
 - Replay starts playing from the beginning as soon as it opens, and closing it stops the audio and releases the audio session so the next recording works.
 - Connecting through Tailscale or a Remote address also tries the default port 47823, so a pairing that stored a wrong port still connects.
 - Voice notes no longer contain engine markers such as [BLANK_AUDIO] or [MUSIC]; empty phrases are not created.
