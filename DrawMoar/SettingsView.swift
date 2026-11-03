@@ -14,7 +14,7 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section("Voice") {
-                    LabeledContent("Parakeet Ultra", value: model.voice.installed ? ByteCountFormatter.string(fromByteCount: model.voice.size, countStyle: .file) : "Not downloaded")
+                    LabeledContent("Parakeet Ultra", value: model.voice.installed ? (model.voice.loading ? "Preparing..." : ByteCountFormatter.string(fromByteCount: model.voice.size, countStyle: .file)) : "Not downloaded")
                     if let progress = model.voice.progress {
                         let text = DownloadText(fraction: progress.fractionCompleted, phase: progress.phase, downloaded: model.voice.size, total: nil)
                         ProgressView(value: progress.fractionCompleted) {

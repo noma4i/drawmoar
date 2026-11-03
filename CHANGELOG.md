@@ -9,7 +9,7 @@
 - Every voice recording is stored on the phone as AAC with a timeline of the session, so a past session keeps its audio, words, and stroke timing. Selecting a history entry continues its voice session. Audio is never sent to the Mac.
 - Replay of a past voice session: strokes are drawn again in time with the audio, marks appear when they were made, and the transcript shows time pills you can tap to seek. Pauses longer than 3 seconds are shortened to 1 second. Open it from History (swipe or long-press) or the editor toolbar.
 - Built-in drawing tools: pen, marker, eraser, six colors, shown as icons.
-- The voice model loads in the background at app start, so transcription starts without a delay. The editor shows "Loading model" while it loads. Transcription times out after 180 seconds.
+- The voice model loads in the background at app start, so transcription starts without a delay. The first launch after an install or update prepares the model for about a minute, later launches are instant. The microphone shows a small spinner while the model prepares, and Settings shows "Preparing...". Recording works meanwhile. Transcription times out after 180 seconds.
 
 ### Changed
 

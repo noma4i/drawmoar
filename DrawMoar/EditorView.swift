@@ -184,6 +184,15 @@ struct EditorView: View {
                         .labelStyle(.iconOnly)
                         .disabled(model.startingRecording)
                         .foregroundStyle(model.recording ? Color.red : Color.primary)
+                        .overlay(alignment: .topTrailing) {
+                            if model.voice.loading {
+                                ProgressView()
+                                    .controlSize(.mini)
+                                    .accessibilityHidden(true)
+                                    .transition(.opacity)
+                            }
+                        }
+                        .accessibilityValue(model.voice.loading ? "Preparing voice model" : "")
                 }
             }
             .frame(width: 30, height: 32)
@@ -192,6 +201,7 @@ struct EditorView: View {
             .accessibilityHidden(model.mode != .note)
             .animation(.easeOut(duration: 0.15), value: model.recording)
             .animation(.easeOut(duration: 0.15), value: model.transcribing)
+            .animation(.easeOut(duration: 0.15), value: model.voice.loading)
             .animation(.easeOut(duration: 0.15), value: model.mode)
             Spacer(minLength: 16)
             if cropping || selectingWindow {
