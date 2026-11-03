@@ -14,6 +14,7 @@
 
 ### Changed
 
+- The mark number on the note image is a blue circle with a white digit, sized to 3.5% of the image long side (at least 28 px), so it stays readable on large screens.
 - A voice session lasts until New: several recordings add to one note, marks keep counting, and each recording starts a new phrase.
 - Switch between automatic drawing sends and voice notes in the editor.
 - A voice note sends only light files: the annotated image is your crop, or the area around all marks, or the whole screen scaled to 1600 px. The full screenshot stays on the phone.

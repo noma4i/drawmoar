@@ -105,6 +105,26 @@ extension VoiceTests {
         return UIGraphicsImageRenderer(size: CGSize(width: 5120, height: 2880), format: format).image { _ in }
     }
 
+    func testMarkChipScalesWithOutputImage() throws {
+        let image = bigImage()
+        func render(_ mark: NoteMark) throws -> CGImage {
+            let data = try ImageRenderer.annotated(image: image, drawing: PKDrawing(), crop: CGRect(x: 0, y: 0, width: 1480, height: 880), marks: [mark])
+            return try XCTUnwrap(UIImage(data: data)?.cgImage)
+        }
+        func rgb(_ cg: CGImage, _ x: Int, _ y: Int) -> [Int] {
+            var px = [UInt8](repeating: 0, count: 4)
+            let ctx = CGContext(data: &px, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            ctx.draw(cg, in: CGRect(x: -x, y: y - cg.height + 1, width: cg.width, height: cg.height))
+            return px.prefix(3).map(Int.init)
+        }
+        let far = try render(NoteMark(number: 1, start: 0, x: 200, y: 200, width: 10, height: 10, on: nil))
+        XCTAssertEqual(rgb(far, 156, 174), [0, 122, 255])
+        XCTAssertEqual(rgb(far, 150, 174), [255, 255, 255])
+        XCTAssertEqual(rgb(far, 146, 174), [0, 0, 0])
+        let edge = try render(NoteMark(number: 2, start: 0, x: 0, y: 0, width: 10, height: 10, on: nil))
+        XCTAssertEqual(rgb(edge, 8, 26), [0, 122, 255])
+    }
+
     func testNoteRegionRules() {
         let size = CGSize(width: 5120, height: 2880)
         let marks = [NoteMark(number: 1, start: 0, x: 100, y: 100, width: 200, height: 100, on: nil), NoteMark(number: 2, start: 1, x: 1000, y: 500, width: 300, height: 200, on: nil)]

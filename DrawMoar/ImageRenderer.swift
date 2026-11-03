@@ -64,24 +64,32 @@ enum ImageRenderer {
         format.scale = 1
         format.opaque = true
         let outputSize = CGSize(width: max(1, (rect.width * outputScale).rounded()), height: max(1, (rect.height * outputScale).rounded()))
+        let sx = outputSize.width / rect.width
+        let sy = outputSize.height / rect.height
+        let side = max(28, (max(outputSize.width, outputSize.height) * 0.035).rounded())
         let rendered = UIGraphicsImageRenderer(size: outputSize, format: format).image { context in
-            context.cgContext.scaleBy(x: outputSize.width / rect.width, y: outputSize.height / rect.height)
+            context.cgContext.saveGState()
+            context.cgContext.scaleBy(x: sx, y: sy)
             context.cgContext.translateBy(x: -rect.minX, y: -rect.minY)
             UIImage(cgImage: cgImage).draw(in: bounds)
             UITraitCollection(userInterfaceStyle: .light).performAsCurrent {
                 fullDrawing.image(from: rect, scale: 1).draw(in: rect)
             }
+            context.cgContext.restoreGState()
             for mark in marks {
-                let left = CGFloat(mark.x) - 28
-                let top = CGFloat(mark.y) - 28
-                let x = max(rect.minX, min(left < rect.minX ? CGFloat(mark.x) : left, rect.maxX - 28))
-                let y = max(rect.minY, min(top < rect.minY ? CGFloat(mark.y) : top, rect.maxY - 28))
-                let chip = CGRect(x: x, y: y, width: 28, height: 28)
-                let path = UIBezierPath(roundedRect: chip.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 6)
-                UIColor.white.setFill(); path.fill()
-                UIColor.darkGray.setStroke(); path.lineWidth = 1; path.stroke()
+                let markX = (CGFloat(mark.x) - rect.minX) * sx
+                let markY = (CGFloat(mark.y) - rect.minY) * sy
+                let left = markX - side
+                let top = markY - side
+                let x = max(0, min(left < 0 ? markX : left, outputSize.width - side))
+                let y = max(0, min(top < 0 ? markY : top, outputSize.height - side))
+                let chip = CGRect(x: x, y: y, width: side, height: side)
+                UIColor.white.setFill()
+                UIBezierPath(ovalIn: chip).fill()
+                UIColor(red: 0, green: 122 / 255, blue: 1, alpha: 1).setFill()
+                UIBezierPath(ovalIn: chip.insetBy(dx: side * 0.08, dy: side * 0.08)).fill()
                 let text = String(mark.number) as NSString
-                let attributes: [NSAttributedString.Key: Any] = [.font: UIFont.boldSystemFont(ofSize: 17), .foregroundColor: UIColor.black]
+                let attributes: [NSAttributedString.Key: Any] = [.font: UIFont.boldSystemFont(ofSize: side * 0.6), .foregroundColor: UIColor.white]
                 let size = text.size(withAttributes: attributes)
                 text.draw(at: CGPoint(x: chip.midX - size.width / 2, y: chip.midY - size.height / 2), withAttributes: attributes)
             }
