@@ -212,6 +212,8 @@ struct EditorView: View {
     fileprivate static let inset: CGFloat = 8
     fileprivate static let statusWidth: CGFloat = 72
     fileprivate static let pillSegmentWidth: CGFloat = 72
+    fileprivate static let compactPillSegmentWidth: CGFloat = 56
+    fileprivate static let compactSlot: CGFloat = 38
     fileprivate static let pillWidth: CGFloat = 2 * pillSegmentWidth + 6
 
     private func barButton(_ title: String, _ symbol: String, titled: Bool = false, tint: Color? = nil, action: @escaping () -> Void) -> some View {
@@ -239,12 +241,12 @@ struct EditorView: View {
         .visibility(.low)
         if layout == .oneRow {
             ToolbarItem(placement: .topBarLeading) {
-                modePicker
+                modePicker(segmentWidth: Self.compactPillSegmentWidth)
             }
             .visibility(.high)
         } else if layout == .twoRows {
             ToolbarItem(placement: .principal) {
-                modePicker
+                modePicker()
             }
             .visibility(.high)
         }
@@ -252,52 +254,97 @@ struct EditorView: View {
 
     @ToolbarContentBuilder private func trailingToolbar(layout: ToolRowLayout) -> some ToolbarContent {
         let state = barState
-        ToolbarItem(placement: .topBarTrailing) {
-            micButton(state)
-        }
-        .visibility(.high)
         if layout == .oneRow {
             ToolbarItem(placement: .topBarTrailing) {
-                barButton("Replay", "play.circle", titled: true) { Task { replay = await model.replaySourceForCurrent() } }
-                    .disabled(!EditorBarItem.replay.isEnabled(state))
+                oneRowTrailing(state)
             }
-            .visibility(.low)
+            .visibility(.high)
         } else {
+            ToolbarItem(placement: .topBarTrailing) {
+                micButton(state)
+            }
+            .visibility(.high)
             ToolbarItem(placement: .topBarTrailing) {
                 barButton("Replay", "play.circle", titled: true) { Task { replay = await model.replaySourceForCurrent() } }
                     .disabled(!EditorBarItem.replay.isEnabled(state))
             }
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            barButton("Crop", "crop", titled: true) { startCrop() }
-                .disabled(!EditorBarItem.crop.isEnabled(state))
-        }
-        .visibility(.low)
-        ToolbarItem(placement: .topBarTrailing) {
-            barButton("Window", "macwindow", titled: true) { startWindowSelection() }
-                .disabled(!EditorBarItem.window.isEnabled(state))
-        }
-        .visibility(.low)
-        if layout != .oneRow {
+            ToolbarItem(placement: .topBarTrailing) {
+                barButton("Crop", "crop", titled: true) { startCrop() }
+                    .disabled(!EditorBarItem.crop.isEnabled(state))
+            }
+            .visibility(.low)
+            ToolbarItem(placement: .topBarTrailing) {
+                barButton("Window", "macwindow", titled: true) { startWindowSelection() }
+                    .disabled(!EditorBarItem.window.isEnabled(state))
+            }
+            .visibility(.low)
             ToolbarSpacer(.fixed, placement: .topBarTrailing)
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            barButton("Undo", "arrow.uturn.backward") { model.undo() }
-                .disabled(!EditorBarItem.undo.isEnabled(state))
-        }
-        .visibility(.high)
-        ToolbarItem(placement: .topBarTrailing) {
-            barButton("Redo", "arrow.uturn.forward") { model.redo() }
-                .disabled(!EditorBarItem.redo.isEnabled(state))
-        }
-        .visibility(.high)
-        if layout != .oneRow {
+            ToolbarItem(placement: .topBarTrailing) {
+                barButton("Undo", "arrow.uturn.backward") { model.undo() }
+                    .disabled(!EditorBarItem.undo.isEnabled(state))
+            }
+            .visibility(.high)
+            ToolbarItem(placement: .topBarTrailing) {
+                barButton("Redo", "arrow.uturn.forward") { model.redo() }
+                    .disabled(!EditorBarItem.redo.isEnabled(state))
+            }
+            .visibility(.high)
             ToolbarSpacer(.fixed, placement: .topBarTrailing)
+            ToolbarItem(placement: .topBarTrailing) {
+                barButton("New", "plus.viewfinder", titled: true) { Task { await model.newCapture() } }
+            }
+            .visibility(.high)
         }
-        ToolbarItem(placement: .topBarTrailing) {
-            barButton("New", "plus.viewfinder", titled: true) { Task { await model.newCapture() } }
+    }
+
+    private func oneRowTrailing(_ state: EditorBarState) -> some View {
+        BarAxis { vertical in
+            let stack = vertical ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
+            stack {
+                micButton(state, width: Self.compactSlot)
+                compactBarButton("Undo", "arrow.uturn.backward") { model.undo() }
+                    .disabled(!EditorBarItem.undo.isEnabled(state))
+                compactBarButton("Redo", "arrow.uturn.forward") { model.redo() }
+                    .disabled(!EditorBarItem.redo.isEnabled(state))
+                compactBarButton("New", "plus.viewfinder") { Task { await model.newCapture() } }
+                Menu {
+                    ForEach(EditorBarItem.placement(in: .oneRow).menu, id: \.self) { item in
+                        menuEntry(item, state)
+                    }
+                } label: {
+                    Label("More", systemImage: "ellipsis")
+                        .labelStyle(.iconOnly)
+                        .frame(width: Self.compactSlot, height: Self.slot)
+                }
+                .menuIndicator(.hidden)
+                .accessibilityLabel("More")
+            }
+            .tint(.primary)
         }
-        .visibility(.high)
+    }
+
+    @ViewBuilder private func menuEntry(_ item: EditorBarItem, _ state: EditorBarState) -> some View {
+        switch item {
+        case .replay:
+            Button("Replay", systemImage: "play.circle") { Task { replay = await model.replaySourceForCurrent() } }
+                .disabled(!item.isEnabled(state))
+        case .crop:
+            Button("Crop", systemImage: "crop") { startCrop() }
+                .disabled(!item.isEnabled(state))
+        case .window:
+            Button("Window", systemImage: "macwindow") { startWindowSelection() }
+                .disabled(!item.isEnabled(state))
+        default:
+            EmptyView()
+        }
+    }
+
+    private func compactBarButton(_ title: String, _ symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .frame(width: Self.compactSlot, height: Self.slot)
+        }
+        .accessibilityLabel(title)
     }
 
     private var selectionPill: some View {
@@ -317,7 +364,7 @@ struct EditorView: View {
         .padding(.bottom, 12)
     }
 
-    private func micButton(_ state: EditorBarState) -> some View {
+    private func micButton(_ state: EditorBarState, width: CGFloat = EditorView.slot) -> some View {
         let busy = state.startingRecording || state.transcribing || state.voiceLoading
         return Button {
             Task { await model.toggleRecording() }
@@ -329,7 +376,7 @@ struct EditorView: View {
                     ProgressView().controlSize(.mini).accessibilityHidden(true)
                 }
             }
-            .frame(width: Self.slot, height: Self.slot)
+            .frame(width: width, height: Self.slot)
             .fixedSize()
             .animation(.easeOut(duration: 0.15), value: busy)
             .animation(.easeOut(duration: 0.15), value: state.recording)
@@ -341,11 +388,11 @@ struct EditorView: View {
         .accessibilityValue(state.transcribing ? "Transcribing" : busy ? "Preparing voice model" : "")
     }
 
-    private var modePicker: some View {
+    private func modePicker(segmentWidth: CGFloat = EditorView.pillSegmentWidth) -> some View {
         let locked = !EditorBarItem.mode.isEnabled(barState)
         return HStack(spacing: 0) {
-            modeSegment("Draw", .draw)
-            modeSegment("Note", .note)
+            modeSegment("Draw", .draw, width: segmentWidth)
+            modeSegment("Note", .note, width: segmentWidth)
         }
         .padding(.horizontal, 3)
         .background(Color.secondary.opacity(0.15), in: Capsule())
@@ -357,13 +404,13 @@ struct EditorView: View {
         .accessibilityLabel("Drawing mode")
     }
 
-    private func modeSegment(_ title: String, _ mode: EditorMode) -> some View {
+    private func modeSegment(_ title: String, _ mode: EditorMode, width: CGFloat) -> some View {
         let selected = model.mode == mode
         return Button { model.mode = mode } label: {
             Text(title)
                 .font(.body.weight(.semibold))
                 .foregroundStyle(selected ? Color.white : Color.primary)
-                .frame(width: Self.pillSegmentWidth, height: Self.slot)
+                .frame(width: width, height: Self.slot)
                 .background(selected ? Color.accentColor : .clear, in: Capsule())
                 .contentShape(Capsule())
                 .animation(.easeOut(duration: 0.15), value: selected)
@@ -380,7 +427,7 @@ struct EditorView: View {
                 HStack(spacing: 0) {
                     HStack(spacing: 0) {
                         if layout == .oneRowWithPill {
-                            modePicker
+                            modePicker()
                             divider
                         }
                         toolsGroup
@@ -608,6 +655,14 @@ enum EditorBarItem: CaseIterable {
 
     static func items(for _: EditorBarState) -> [EditorBarItem] {
         allCases
+    }
+
+    static func placement(in layout: ToolRowLayout) -> (leading: [EditorBarItem], bar: [EditorBarItem], menu: [EditorBarItem]) {
+        switch layout {
+        case .oneRow: ([.settings, .history, .mode], [.mic, .undo, .redo, .new], [.replay, .crop, .window])
+        case .oneRowWithPill: ([.settings, .history], [.mic, .replay, .crop, .window, .undo, .redo, .new], [])
+        case .twoRows: ([.settings, .history, .mode], [.mic, .replay, .crop, .window, .undo, .redo, .new], [])
+        }
     }
 
     func isEnabled(_ state: EditorBarState) -> Bool {

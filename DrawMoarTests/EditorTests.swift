@@ -39,6 +39,19 @@ import XCTest
         }
     }
 
+    func testEveryToolbarItemHasOnePlacementInEachLayout() {
+        for layout in [ToolRowLayout.oneRowWithPill, .oneRow, .twoRows] {
+            let placed = EditorBarItem.placement(in: layout)
+            let all = placed.leading + placed.bar + placed.menu
+            XCTAssertEqual(all.count, EditorBarItem.allCases.count, "\(layout)")
+            XCTAssertEqual(Set(all), Set(EditorBarItem.allCases), "\(layout)")
+        }
+        let oneRow = EditorBarItem.placement(in: .oneRow)
+        XCTAssertEqual(oneRow.leading, [.settings, .history, .mode])
+        XCTAssertEqual(oneRow.bar, [.mic, .undo, .redo, .new])
+        XCTAssertEqual(oneRow.menu, [.replay, .crop, .window])
+    }
+
     func testToolbarItemsAreIdenticalInEveryState() {
         let expected: [EditorBarItem] = [.settings, .history, .mode, .mic, .replay, .crop, .window, .undo, .redo, .new]
         var count = 0
