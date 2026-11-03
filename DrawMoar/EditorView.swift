@@ -14,6 +14,7 @@ struct EditorView: View {
     @State private var showHistory = false
     @State private var canvas = PKCanvasView()
     @State private var settingsChanged = false
+    @State private var toolRowWidth: CGFloat = 0
     @State private var replay: ReplaySource?
 
     var body: some View {
@@ -186,10 +187,11 @@ struct EditorView: View {
             .accessibilityHidden(true)
     }
 
-    private static let slot: CGFloat = 44
-    private static let groupGap: CGFloat = 16
-    private static let itemSpacing: CGFloat = 8
-    private static let inset: CGFloat = 8
+    fileprivate static let slot: CGFloat = 44
+    fileprivate static let minSlot: CGFloat = 24
+    fileprivate static let groupGap: CGFloat = 16
+    fileprivate static let inset: CGFloat = 8
+    fileprivate static let statusWidth: CGFloat = 72
 
     private func barButton(_ title: String, _ symbol: String, titled: Bool = false, tint: Color? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -299,80 +301,110 @@ struct EditorView: View {
 
     private var modePicker: some View {
         let locked = model.recording || model.startingRecording || model.transcribing
-        return BarAxis { vertical in
-            Picker("Drawing mode", selection: $model.mode) {
-                ForEach([(EditorMode.draw, "scribble.variable", "Draw"), (.note, "waveform", "Note")], id: \.0) { mode, symbol, title in
-                    Label(title, systemImage: symbol)
-                        .labelStyle(AdaptiveLabelStyle(showsTitle: !vertical, titleOnly: true))
-                        .tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(width: vertical ? 2 * Self.slot : 140)
+        return Picker("Drawing mode", selection: $model.mode) {
+            Text("Draw").accessibilityLabel("Draw mode").tag(EditorMode.draw)
+            Text("Note").accessibilityLabel("Note mode").tag(EditorMode.note)
         }
+        .pickerStyle(.segmented)
+        .frame(width: 120)
         .disabled(locked)
     }
 
     private var toolRow: some View {
-        let row = HStack(spacing: 0) {
-            toolGroup {
-                ForEach(DrawTool.allCases, id: \.self) { tool in
-                    Button { model.setTool(tool) } label: {
-                        Image(systemName: tool.symbol)
-                            .font(.system(size: 20, weight: .medium))
-                            .foregroundStyle(model.tool == tool ? Color.accentColor : Color.secondary)
-                            .frame(width: Self.slot, height: Self.slot)
-                            .background(model.tool == tool ? Color.accentColor.opacity(0.15) : .clear, in: Capsule())
-                            .contentShape(Rectangle())
+        VStack(spacing: 0) {
+            switch ToolRowLayout.layout(forWidth: toolRowWidth) {
+            case .oneRow:
+                HStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        toolsGroup
+                        divider
+                        colorsGroup
+                        divider
+                        widthsGroup
                     }
-                    .accessibilityLabel(tool.title)
-                    .accessibilityAddTraits(model.tool == tool ? .isSelected : [])
+                    .frame(maxWidth: .infinity)
+                    statusSlot
                 }
-            }
-            divider
-            toolGroup {
-                ForEach(InkColor.allCases, id: \.self) { ink in
-                    Button { model.setInkColor(ink) } label: {
-                        Circle().fill(Color(ink.color))
-                            .frame(width: 24, height: 24)
-                            .overlay(Circle().stroke(Color.primary, lineWidth: model.inkColor == ink ? 3 : 0))
-                            .frame(width: Self.slot, height: Self.slot)
-                            .contentShape(Rectangle())
-                    }
-                    .accessibilityLabel("Color \(ink.rawValue)")
-                    .accessibilityAddTraits(model.inkColor == ink ? .isSelected : [])
+                .frame(height: Self.slot)
+            case .twoRows:
+                HStack(spacing: 0) {
+                    toolsGroup
+                    divider
+                    colorsGroup
                 }
-                .disabled(model.tool == .eraser)
-            }
-            divider
-            toolGroup {
-                ForEach(Array(EditorModel.lineWidths.enumerated()), id: \.element) { index, width in
-                    Button { model.setLineWidth(width) } label: {
-                        Circle().fill(model.lineWidth == width ? Color.accentColor : Color.secondary)
-                            .frame(width: CGFloat(6 + index * 4), height: CGFloat(6 + index * 4))
-                            .frame(width: Self.slot, height: Self.slot)
-                            .background(model.lineWidth == width ? Color.accentColor.opacity(0.15) : .clear, in: Capsule())
-                            .contentShape(Rectangle())
-                    }
-                    .accessibilityLabel("Line width \(index + 1)")
-                    .accessibilityAddTraits(model.lineWidth == width ? .isSelected : [])
+                .padding(.horizontal, Self.inset)
+                .frame(maxWidth: .infinity)
+                .frame(height: Self.slot)
+                HStack(spacing: 0) {
+                    widthsGroup
+                    statusSlot
                 }
-                .disabled(model.tool == .eraser)
+                .frame(maxWidth: .infinity)
+                .frame(height: Self.slot)
             }
         }
         .buttonStyle(.plain)
-        return HStack(spacing: 0) {
-            ViewThatFits(in: .horizontal) {
-                row.frame(maxWidth: .infinity)
-                ScrollView(.horizontal, showsIndicators: false) { row }
-            }
-            statusCapsule.padding(.horizontal, Self.inset)
-        }
         .padding(.vertical, 4)
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { toolRowWidth = $0 }
+    }
+
+    private var statusSlot: some View {
+        statusCapsule.padding(.horizontal, Self.inset)
+    }
+
+    private var toolsGroup: some View {
+        toolGroup {
+            ForEach(DrawTool.allCases, id: \.self) { tool in
+                Button { model.setTool(tool) } label: {
+                    Image(systemName: tool.symbol)
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(model.tool == tool ? Color.accentColor : Color.secondary)
+                        .frame(minWidth: Self.minSlot, maxWidth: Self.slot, minHeight: Self.slot, maxHeight: Self.slot)
+                        .background(model.tool == tool ? Color.accentColor.opacity(0.15) : .clear, in: Capsule())
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel(tool.title)
+                .accessibilityAddTraits(model.tool == tool ? .isSelected : [])
+            }
+        }
+    }
+
+    private var colorsGroup: some View {
+        toolGroup {
+            ForEach(InkColor.allCases, id: \.self) { ink in
+                Button { model.setInkColor(ink) } label: {
+                    Circle().fill(Color(ink.color))
+                        .frame(width: 24, height: 24)
+                        .overlay(Circle().stroke(Color.primary, lineWidth: model.inkColor == ink ? 3 : 0))
+                        .frame(minWidth: Self.minSlot, maxWidth: Self.slot, minHeight: Self.slot, maxHeight: Self.slot)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Color \(ink.rawValue)")
+                .accessibilityAddTraits(model.inkColor == ink ? .isSelected : [])
+            }
+            .disabled(model.tool == .eraser)
+        }
+    }
+
+    private var widthsGroup: some View {
+        toolGroup {
+            ForEach(Array(EditorModel.lineWidths.enumerated()), id: \.element) { index, width in
+                Button { model.setLineWidth(width) } label: {
+                    Circle().fill(model.lineWidth == width ? Color.accentColor : Color.secondary)
+                        .frame(width: CGFloat(6 + index * 4), height: CGFloat(6 + index * 4))
+                        .frame(minWidth: Self.minSlot, maxWidth: Self.slot, minHeight: Self.slot, maxHeight: Self.slot)
+                        .background(model.lineWidth == width ? Color.accentColor.opacity(0.15) : .clear, in: Capsule())
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Line width \(index + 1)")
+                .accessibilityAddTraits(model.lineWidth == width ? .isSelected : [])
+            }
+            .disabled(model.tool == .eraser)
+        }
     }
 
     private func toolGroup(@ViewBuilder _ content: () -> some View) -> some View {
-        HStack(spacing: Self.itemSpacing, content: content)
+        HStack(spacing: 0, content: content)
     }
 
     private var statusCapsule: some View {
@@ -392,7 +424,7 @@ struct EditorView: View {
         .lineLimit(1)
         .minimumScaleFactor(0.7)
         .padding(.horizontal, 6)
-        .frame(maxWidth: 72, minHeight: 22, maxHeight: 22)
+        .frame(maxWidth: Self.statusWidth, minHeight: 22, maxHeight: 22)
         .background(Color.secondary.opacity(0.15), in: Capsule())
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -416,18 +448,21 @@ private extension DrawTool {
     }
 }
 
+enum ToolRowLayout {
+    case oneRow, twoRows
+
+    static let oneRowWidth: CGFloat = 13 * EditorView.slot + 2 * EditorView.groupGap + EditorView.statusWidth + 2 * EditorView.inset
+
+    static func layout(forWidth width: CGFloat) -> ToolRowLayout {
+        width >= oneRowWidth ? .oneRow : .twoRows
+    }
+}
+
 struct AdaptiveLabelStyle: LabelStyle {
     let showsTitle: Bool
-    var titleOnly = false
 
     func makeBody(configuration: Configuration) -> some View {
-        if titleOnly {
-            if showsTitle {
-                configuration.title
-            } else {
-                configuration.icon
-            }
-        } else if showsTitle {
+        if showsTitle {
             HStack(spacing: 6) { configuration.icon; configuration.title }
         } else {
             configuration.icon

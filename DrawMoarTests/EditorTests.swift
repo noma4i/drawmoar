@@ -6,6 +6,14 @@ import SwiftUI
 import XCTest
 
 @MainActor final class EditorTests: XCTestCase {
+    func testToolRowLayoutByWidth() {
+        XCTAssertEqual(ToolRowLayout.oneRowWidth, 692)
+        let table: [(CGFloat, ToolRowLayout)] = [(320, .twoRows), (466, .twoRows), (691, .twoRows), (692, .oneRow), (700, .oneRow), (1100, .oneRow), (1400, .oneRow)]
+        for (width, expected) in table {
+            XCTAssertEqual(ToolRowLayout.layout(forWidth: width), expected, "width \(width)")
+        }
+    }
+
     func testStorageSizeAndDeleteAllAfterPendingEdit() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
