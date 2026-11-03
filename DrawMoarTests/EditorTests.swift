@@ -31,9 +31,9 @@ import XCTest
     }
 
     func testToolRowLayoutByWidth() {
-        XCTAssertEqual(ToolRowLayout.oneRowWidth, 692)
+        XCTAssertEqual(ToolRowLayout.oneRowWidth, 588)
         XCTAssertEqual(ToolRowLayout.oneRowWithPillWidth, 858)
-        let table: [(CGFloat, ToolRowLayout)] = [(320, .twoRows), (466, .twoRows), (691, .twoRows), (692, .oneRow), (700, .oneRow), (857, .oneRow), (858, .oneRowWithPill), (1100, .oneRowWithPill), (1400, .oneRowWithPill)]
+        let table: [(CGFloat, ToolRowLayout)] = [(320, .twoRows), (375, .twoRows), (466, .twoRows), (587, .twoRows), (588, .oneRow), (669, .oneRow), (692, .oneRow), (857, .oneRow), (858, .oneRowWithPill), (1100, .oneRowWithPill), (1400, .oneRowWithPill)]
         for (width, expected) in table {
             XCTAssertEqual(ToolRowLayout.layout(forWidth: width), expected, "width \(width)")
         }

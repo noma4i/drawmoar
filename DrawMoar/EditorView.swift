@@ -207,7 +207,7 @@ struct EditorView: View {
     }
 
     fileprivate static let slot: CGFloat = 44
-    fileprivate static let minSlot: CGFloat = 24
+    fileprivate static let minSlot: CGFloat = 36
     fileprivate static let groupGap: CGFloat = 16
     fileprivate static let inset: CGFloat = 8
     fileprivate static let statusWidth: CGFloat = 72
@@ -257,6 +257,7 @@ struct EditorView: View {
             barButton("Replay", "play.circle", titled: true) { Task { replay = await model.replaySourceForCurrent() } }
                 .disabled(!EditorBarItem.replay.isEnabled(state))
         }
+        .visibility(.low)
         ToolbarItem(placement: .topBarTrailing) {
             barButton("Crop", "crop", titled: true) { startCrop() }
                 .disabled(!EditorBarItem.crop.isEnabled(state))
@@ -402,7 +403,7 @@ struct EditorView: View {
     }
 
     private var statusSlot: some View {
-        statusCapsule.padding(.horizontal, Self.inset)
+        statusCapsule.padding(.horizontal, Self.inset).layoutPriority(1)
     }
 
     private var toolsGroup: some View {
@@ -477,7 +478,7 @@ struct EditorView: View {
         .lineLimit(1)
         .minimumScaleFactor(0.7)
         .padding(.horizontal, 6)
-        .frame(maxWidth: Self.statusWidth, minHeight: 22, maxHeight: 22)
+        .frame(minWidth: Self.statusWidth, maxWidth: Self.statusWidth, minHeight: 22, maxHeight: 22)
         .background(Color.secondary.opacity(0.15), in: Capsule())
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -543,8 +544,8 @@ struct HistoryPanel: Equatable {
 enum ToolRowLayout {
     case oneRowWithPill, oneRow, twoRows
 
-    static let oneRowWidth: CGFloat = 13 * EditorView.slot + 2 * EditorView.groupGap + EditorView.statusWidth + 2 * EditorView.inset
-    static let oneRowWithPillWidth: CGFloat = oneRowWidth + EditorView.pillWidth + EditorView.groupGap
+    static let oneRowWidth: CGFloat = 13 * EditorView.minSlot + 2 * EditorView.groupGap + EditorView.statusWidth + 2 * EditorView.inset
+    static let oneRowWithPillWidth: CGFloat = 13 * EditorView.slot + 2 * EditorView.groupGap + EditorView.statusWidth + 2 * EditorView.inset + EditorView.pillWidth + EditorView.groupGap
 
     static func layout(forWidth width: CGFloat) -> ToolRowLayout {
         if width >= oneRowWithPillWidth {
