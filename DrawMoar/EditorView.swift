@@ -84,6 +84,9 @@ struct EditorView: View {
                             Image(uiImage: thumbnail).resizable().scaledToFit().frame(width: 80, height: 60)
                         }
                         Text(entry.date, style: .time)
+                        if entry.hasTimeline {
+                            Image(systemName: "waveform").accessibilityLabel("Voice note")
+                        }
                     }
                 }
                 .swipeActions { Button("Delete", role: .destructive) { Task { await model.deleteHistory(entry) } } }

@@ -52,6 +52,7 @@ private struct VoiceSession {
     let started: Date
     var marks: [NoteMark]
     var phrases: [NotePhrase]
+    var recordings: [VoiceRecording] = []
 }
 
 @MainActor private final class Deadline<T> {
@@ -235,7 +236,7 @@ enum EditorMode: String {
                 }
                 return try await voice.transcribe(samples)
             }
-            try await sendVoiceNote(words: words, started: started, duration: duration)
+            try await sendVoiceNote(words: words, started: started, duration: duration, samples: samples)
         } catch { self.error = error.localizedDescription }
     }
 
@@ -257,7 +258,8 @@ enum EditorMode: String {
         }
     }
 
-    func sendVoiceNote(words: [NoteBuilder.Word], started: Date, duration: Double) async throws {
+    func sendVoiceNote(words: [NoteBuilder.Word], started: Date, duration: Double, samples: [Float] = []) async throws {
+        let currentSession = session
         let size = image?.cgImage.map { CGSize(width: $0.width, height: $0.height) } ?? .zero
         let scale = size == .zero ? 1 : Self.canvasScale(for: size)
         let strokes = image == nil ? [] : drawing.strokes.map {
@@ -268,12 +270,28 @@ enum EditorMode: String {
         let segment = NoteBuilder.build(words: words, strokes: strokes, windows: windows, size: size, display: displays.first(where: { $0.id == selectedDisplay })?.name, duration: duration, firstMark: previous.marks.count + 1)
         let marks = previous.marks + segment.marks.map { NoteMark(number: $0.number, start: $0.start + offset, x: $0.x, y: $0.y, width: $0.width, height: $0.height, on: $0.on) }
         let phrases = previous.phrases + segment.phrases.map { NotePhrase(start: $0.start + offset, end: $0.end + offset, text: $0.text, marks: $0.marks) }
-        voiceSession = VoiceSession(started: previous.started, marks: marks, phrases: phrases)
         let note = Note(displayName: segment.displayName, width: segment.width, height: segment.height, duration: offset + duration, marks: marks, phrases: phrases)
+        var recordings = previous.recordings
+        if !samples.isEmpty, image != nil {
+            let id = currentSession
+            let storage = storage
+            let number = recordings.count + 1
+            do {
+                let file = try await Task.detached(priority: .utility) { try storage.saveVoice(samples, id: id, number: number) }.value
+                recordings.append(VoiceRecording(file: file, start: offset, duration: Double(samples.count) / 16000))
+                let timeline = VoiceTimeline(sessionStart: previous.started, recordings: recordings, note: note)
+                try await Task.detached(priority: .utility) { try storage.saveTimeline(timeline, id: id) }.value
+                if let index = history.firstIndex(where: { $0.id == id }) {
+                    history[index].hasTimeline = true
+                }
+            } catch { self.error = error.localizedDescription }
+        }
+        if session == currentSession {
+            voiceSession = VoiceSession(started: previous.started, marks: marks, phrases: phrases, recordings: recordings)
+        }
         let annotated = try image.map { try ImageRenderer.noteImage(image: $0, drawing: drawing, crop: crop, marks: note.marks) } ?? Data()
         let screenshot = Data()
         guard let client else { throw MacError.unavailable([]) }
-        let currentSession = session
         let sentRevision = revision
         if sending {
             await withCheckedContinuation { sendWaiters.append($0) }
@@ -532,6 +550,9 @@ enum EditorMode: String {
             drawing = capture.drawing
             crop = capture.crop
             replaceSession(capture.id)
+            if let timeline = capture.timeline {
+                voiceSession = VoiceSession(started: timeline.sessionStart, marks: timeline.note.marks, phrases: timeline.note.phrases, recordings: timeline.recordings)
+            }
             captureDate = capture.date
             cropUndo = []
             resetting = false

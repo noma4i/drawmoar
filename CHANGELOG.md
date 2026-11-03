@@ -6,6 +6,7 @@
 
 - Voice notes with on-device Parakeet Ultra transcription, numbered marks, and dictation.
 - Download progress for the voice model.
+- Every voice recording is stored on the phone as AAC with a timeline of the session, so a past session keeps its audio, words, and stroke timing. Selecting a history entry continues its voice session. Audio is never sent to the Mac.
 - Built-in drawing tools: pen, marker, eraser, six colors, shown as icons.
 - The voice model loads in the background at app start, so transcription starts without a delay. The editor shows "Loading model" while it loads. Transcription times out after 180 seconds.
 

@@ -1,3 +1,4 @@
+import AVFoundation
 import CompanionKit
 @testable import DrawMoar
 import FluidAudio
@@ -175,6 +176,73 @@ extension VoiceTests {
         XCTAssertEqual(fresh.phrases[0].start, 0.5)
         XCTAssertEqual(client.sessions.count, 3)
         XCTAssertNotEqual(client.sessions[2], client.sessions[0])
+    }
+
+    @MainActor func testTimelinePersistsRestoresAndDeletes() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let base = Date(timeIntervalSince1970: 1_000_000)
+        let lengths = [2, 3, 1]
+        var stops = 0
+        var words = 0
+        let client = VoiceClient()
+        client.capturePNG = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10)).image { _ in }.pngData())
+        let model = try EditorModel(client: client, defaults: XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), delay: {}, historyDirectory: directory, startVoice: {}, stopVoice: {
+            defer { stops += 1 }
+            return ((0 ..< lengths[stops] * 16000).map { sin(Float($0) * 0.05) * 0.3 }, base.addingTimeInterval(Double(stops) * 10))
+        }, transcribeVoice: { _ in
+            words += 1
+            return [.init(text: ["one", "two", "three"][words - 1], start: 0.5, end: 0.8)]
+        })
+        model.mode = .note
+        model.image = UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10)).image { _ in }
+        model.drawing = PKDrawing(strokes: [stroke(at: base.addingTimeInterval(1))])
+        for _ in 0 ..< 2 {
+            await model.toggleRecording()
+            await model.toggleRecording()
+        }
+        XCTAssertNil(model.error)
+        let id = try XCTUnwrap(client.sessions.first)
+        let storage = CaptureHistory(directory: directory)
+        for (number, length) in [(1, 2.0), (2, 3.0)] {
+            let audio = try AVAudioFile(forReading: directory.appendingPathComponent("\(id).voice-\(number).m4a"))
+            XCTAssertEqual(Double(audio.length) / audio.processingFormat.sampleRate, length, accuracy: 0.1)
+        }
+        let timeline = try XCTUnwrap(storage.loadTimeline(id))
+        XCTAssertEqual(timeline.recordings.map(\.start), [0, 10])
+        XCTAssertEqual(timeline.recordings.map(\.file), ["\(id).voice-1.m4a", "\(id).voice-2.m4a"])
+        XCTAssertEqual(timeline.note.phrases.map(\.text), ["one", "two"])
+        XCTAssertEqual(timeline.sessionStart, base)
+
+        await model.newCapture()
+        _ = await model.flushHistory()
+        let first = try XCTUnwrap(model.history.first { $0.id == id })
+        XCTAssertTrue(first.hasTimeline)
+        XCTAssertEqual(model.history.filter(\.hasTimeline).count, 1)
+        let other = try XCTUnwrap(model.history.first { $0.id != id })
+        await model.select(other)
+        await model.select(first)
+        await model.toggleRecording()
+        await model.toggleRecording()
+        let resumed = try XCTUnwrap(client.note)
+        XCTAssertEqual(resumed.phrases.map(\.text), ["one", "two", "three"])
+        XCTAssertEqual(resumed.phrases[2].start, 20.5)
+        XCTAssertEqual(storage.loadTimeline(id)?.recordings.count, 3)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("\(id).voice-3.m4a").path))
+
+        await model.deleteHistory(first)
+        let left = try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.hasPrefix(id) }
+        XCTAssertEqual(left, [])
+    }
+
+    @MainActor func testEntryWithoutTimelineLoads() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let storage = CaptureHistory(directory: directory)
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10)).image { _ in }
+        let saved = try storage.save(CaptureEntry(id: "old", date: Date(), image: image, drawing: PKDrawing(), crop: nil, windows: []))
+        XCTAssertFalse(saved.hasTimeline)
+        let entry = try XCTUnwrap(storage.load().first)
+        XCTAssertFalse(entry.hasTimeline)
+        XCTAssertNil(try storage.loadCapture(entry).timeline)
     }
 
     @MainActor func testPrepareLoadsOnce() async {
