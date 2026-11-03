@@ -21,14 +21,19 @@ struct ReplaySource: Identifiable {
     private var anchorUptime = 0.0
     private var anchorTime = 0.0
     private var resumeAfterScrub = false
+    private let clock: () -> Double
+    private let session: any AudioSessioning
 
-    init(timeline: ReplayTimeline, directory: URL) {
+    init(timeline: ReplayTimeline, directory: URL, clock: @escaping () -> Double = { ProcessInfo.processInfo.systemUptime }, session: any AudioSessioning = AVAudioSession.sharedInstance()) {
         self.timeline = timeline
+        self.clock = clock
+        self.session = session
         tracks = timeline.recordings.compactMap { recording in
             guard let player = try? AVAudioPlayer(contentsOf: directory.appendingPathComponent(recording.file)) else { return nil }
             player.prepareToPlay()
             return (player, timeline.recordingStart(recording), recording.duration)
         }
+        play()
     }
 
     func play() {
@@ -36,12 +41,11 @@ struct ReplaySource: Identifiable {
         if time >= timeline.duration {
             time = 0
         }
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback)
-        try? session.setActive(true)
+        try? session.configure(.playback, mode: .default)
+        try? session.activate(true)
         playing = true
         anchorTime = time
-        anchorUptime = ProcessInfo.processInfo.systemUptime
+        anchorUptime = clock()
         armAudio()
         ticker = Task { [weak self] in
             while !Task.isCancelled {
@@ -64,7 +68,7 @@ struct ReplaySource: Identifiable {
         time = min(max(0, value), timeline.duration)
         guard playing else { return }
         anchorTime = time
-        anchorUptime = ProcessInfo.processInfo.systemUptime
+        anchorUptime = clock()
         armAudio()
     }
 
@@ -82,12 +86,16 @@ struct ReplaySource: Identifiable {
 
     func stop() {
         pause()
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        for track in tracks {
+            track.player.stop()
+        }
+        tracks = []
+        try? session.activate(false)
     }
 
-    private func tick() {
+    func tick() {
         guard playing else { return }
-        time = min(timeline.duration, anchorTime + ProcessInfo.processInfo.systemUptime - anchorUptime)
+        time = min(timeline.duration, anchorTime + clock() - anchorUptime)
         if time >= timeline.duration {
             pause()
         }
@@ -211,10 +219,23 @@ private struct ReplayStage: View {
     }
 }
 
+@MainActor private final class ReplayPlayerHolder {
+    private var created: ReplayPlayer?
+
+    func player(for source: ReplaySource) -> ReplayPlayer {
+        if let created {
+            return created
+        }
+        let player = ReplayPlayer(timeline: ReplayTimeline(drawing: source.drawing, timeline: source.timeline), directory: source.directory)
+        created = player
+        return player
+    }
+}
+
 struct ReplayView: View {
     let source: ReplaySource
     @Environment(\.dismiss) private var dismiss
-    @State private var player: ReplayPlayer
+    @State private var holder = ReplayPlayerHolder()
     @State private var base: UIImage
     @State private var rect: CGRect
     @State private var ink: InkCache
@@ -227,8 +248,11 @@ struct ReplayView: View {
         let rect = region.isNull || region.isEmpty ? bounds : region
         _rect = State(initialValue: rect)
         _base = State(initialValue: source.image.cgImage?.cropping(to: rect).map { UIImage(cgImage: $0) } ?? source.image)
-        _player = State(initialValue: ReplayPlayer(timeline: ReplayTimeline(drawing: source.drawing, timeline: source.timeline), directory: source.directory))
         _ink = State(initialValue: InkCache(source: source))
+    }
+
+    private var player: ReplayPlayer {
+        holder.player(for: source)
     }
 
     var body: some View {

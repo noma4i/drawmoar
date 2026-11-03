@@ -343,6 +343,67 @@ extension VoiceTests {
     }
 }
 
+@MainActor
+extension VoiceTests {
+    private func replayModel(_ client: VoiceClient) async throws -> EditorModel {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let model = try EditorModel(client: client, defaults: XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), delay: {}, historyDirectory: directory, startVoice: {}, stopVoice: {
+            ((0 ..< 16000).map { sin(Float($0) * 0.05) * 0.3 }, Date())
+        }, transcribeVoice: { _ in [.init(text: "one", start: 0.1, end: 0.4)] })
+        model.mode = .note
+        model.image = UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10)).image { _ in }
+        model.drawing = PKDrawing(strokes: [stroke(at: Date())])
+        _ = await model.flushHistory()
+        await model.toggleRecording()
+        await model.toggleRecording()
+        XCTAssertNil(model.error)
+        XCTAssertEqual(client.noteCount, 1)
+        return model
+    }
+
+    private func waitForPaste(_ client: VoiceClient) async throws {
+        for _ in 0 ..< 300 where client.pasted == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    func testDrawSendsAfterReplayOpenedWithStuckTool() async throws {
+        let client = VoiceClient()
+        let model = try await replayModel(client)
+        model.setUsingTool(true)
+        let source = await model.replaySourceForCurrent()
+        XCTAssertNotNil(source)
+        model.replayClosed()
+        model.mode = .draw
+        client.pasted = nil
+        model.drawing = PKDrawing(strokes: [stroke(at: Date()), stroke(at: Date().addingTimeInterval(1))])
+        try await waitForPaste(client)
+        XCTAssertNotNil(client.pasted)
+        XCTAssertTrue(model.delivered)
+        XCTAssertFalse(model.sending)
+    }
+
+    func testReplayOpenedTwiceLeavesNoSendWaiters() async throws {
+        let client = VoiceClient()
+        let model = try await replayModel(client)
+        async let first = model.replaySourceForCurrent()
+        async let second = model.replaySourceForCurrent()
+        _ = await (first, second)
+        XCTAssertFalse(model.sending)
+        model.mode = .draw
+        client.pasted = nil
+        model.drawing = PKDrawing(strokes: [stroke(at: Date()), stroke(at: Date().addingTimeInterval(1))])
+        try await waitForPaste(client)
+        XCTAssertNotNil(client.pasted)
+        XCTAssertTrue(model.delivered)
+        XCTAssertFalse(model.sending)
+        model.mode = .note
+        await model.toggleRecording()
+        await model.toggleRecording()
+        XCTAssertEqual(client.noteCount, 2)
+    }
+}
+
 @MainActor private final class VoiceClient: MacCapturing {
     var capturePNG: Data?
     var sessions: [String] = []

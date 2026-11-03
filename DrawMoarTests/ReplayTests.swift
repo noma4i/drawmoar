@@ -1,3 +1,4 @@
+import AVFoundation
 import CompanionKit
 @testable import DrawMoar
 import PencilKit
@@ -36,5 +37,29 @@ final class ReplayTests: XCTestCase {
         XCTAssertEqual(replay.visibleMarks(at: 6.9).count, 0)
         XCTAssertEqual(replay.visibleMarks(at: 7.1).map(\.number), [1])
         XCTAssertEqual(ReplayTimeline.clock(125.9), "2:05")
+    }
+
+    @MainActor func testPlayerStartsPlayingAndStopRestoresSession() {
+        final class Spy: AudioSessioning {
+            var calls: [String] = []
+            func configure(_ category: AVAudioSession.Category, mode _: AVAudioSession.Mode) throws {
+                calls.append("category \(category.rawValue)")
+            }
+
+            func activate(_ active: Bool) throws {
+                calls.append("active \(active)")
+            }
+        }
+        var now = 100.0
+        let spy = Spy()
+        let player = ReplayPlayer(timeline: timeline(), directory: FileManager.default.temporaryDirectory, clock: { now }, session: spy)
+        XCTAssertTrue(player.playing)
+        XCTAssertEqual(player.time, 0)
+        now = 102.5
+        player.tick()
+        XCTAssertEqual(player.time, 2.5, accuracy: 1e-9)
+        player.stop()
+        XCTAssertFalse(player.playing)
+        XCTAssertEqual(spy.calls, ["category \(AVAudioSession.Category.playback.rawValue)", "active true", "active false"])
     }
 }

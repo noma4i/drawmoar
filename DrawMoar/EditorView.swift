@@ -51,7 +51,7 @@ struct EditorView: View {
         .sheet(isPresented: Binding(get: { history.showsSheet(regular: sizeClass == .regular) }, set: { history.sheetOpen = $0 })) {
             NavigationStack { historyList.navigationTitle("History").toolbar { Button("Done") { history.close() } } }
         }
-        .fullScreenCover(item: $replay) { ReplayView(source: $0) }
+        .fullScreenCover(item: $replay, onDismiss: { model.replayClosed() }) { ReplayView(source: $0) }
         .alert("\(model.voice.engine.title) is not installed", isPresented: $model.showVoiceSettings) {
             Button("Settings") { flow.showSettings = true }
             Button("Cancel", role: .cancel) {}

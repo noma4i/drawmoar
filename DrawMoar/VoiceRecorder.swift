@@ -12,7 +12,7 @@ extension AVAudioSession: AudioSessioning {
     }
 
     func activate(_ active: Bool) throws {
-        try setActive(active, options: [])
+        try setActive(active, options: active ? [] : .notifyOthersOnDeactivation)
     }
 }
 
