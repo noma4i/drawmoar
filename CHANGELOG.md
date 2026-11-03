@@ -25,7 +25,7 @@
 ### Fixed
 
 - The editor toolbar never changes its items or their positions: Mic, Replay, and Redo are always there and only turn on or off, the mic shows a small spinner in its own slot instead of a large one, and Crop and Window show Cancel and Done in a pill over the canvas instead of replacing the toolbar.
-- The Draw/Note switch is larger (segments at least 44 pt high and 72 pt wide), and when the screen is wide enough it sits on one line with the tools, colors, widths, and status.
+- The Draw/Note switch is larger (two side-by-side segments, each at least 44 pt high and 72 pt wide, always horizontal and centered on the tool row), and when the screen is wide enough it sits on one line with the tools, colors, widths, and status.
 - The transcript on the phone shows only the time and the phrase, without mark numbers.
 - The tool row fits narrow screens: it splits into two rows (tools and colors, then widths and the status capsule) when one row does not fit, and the status capsule never covers a color or width button. Draw/Note shows the words "Draw" and "Note" in every layout.
 - Connecting through Tailscale or a Remote address also tries the default port 47823, so a pairing that stored a wrong port still connects.

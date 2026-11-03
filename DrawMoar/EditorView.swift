@@ -202,7 +202,6 @@ struct EditorView: View {
     fileprivate static let inset: CGFloat = 8
     fileprivate static let statusWidth: CGFloat = 72
     fileprivate static let pillSegmentWidth: CGFloat = 72
-    fileprivate static let pillSegmentHeightVertical: CGFloat = 56
     fileprivate static let pillWidth: CGFloat = 2 * pillSegmentWidth + 6
 
     private func barButton(_ title: String, _ symbol: String, titled: Bool = false, tint: Color? = nil, action: @escaping () -> Void) -> some View {
@@ -318,16 +317,13 @@ struct EditorView: View {
 
     private var modePicker: some View {
         let locked = !EditorBarItem.mode.isEnabled(barState)
-        return BarAxis { vertical in
-            let layout = vertical ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
-            layout {
-                modeSegment("Draw", .draw, vertical: vertical)
-                modeSegment("Note", .note, vertical: vertical)
-            }
-            .padding(vertical ? EdgeInsets(top: 3, leading: 0, bottom: 3, trailing: 0) : EdgeInsets(top: 0, leading: 3, bottom: 0, trailing: 3))
-            .background(Color.secondary.opacity(0.15), in: Capsule())
-            .fixedSize()
+        return HStack(spacing: 0) {
+            modeSegment("Draw", .draw)
+            modeSegment("Note", .note)
         }
+        .padding(.horizontal, 3)
+        .background(Color.secondary.opacity(0.15), in: Capsule())
+        .fixedSize()
         .disabled(locked)
         .opacity(locked ? 0.5 : 1)
         .animation(.easeOut(duration: 0.15), value: locked)
@@ -335,13 +331,13 @@ struct EditorView: View {
         .accessibilityLabel("Drawing mode")
     }
 
-    private func modeSegment(_ title: String, _ mode: EditorMode, vertical: Bool) -> some View {
+    private func modeSegment(_ title: String, _ mode: EditorMode) -> some View {
         let selected = model.mode == mode
         return Button { model.mode = mode } label: {
             Text(title)
                 .font(.body.weight(.semibold))
                 .foregroundStyle(selected ? Color.white : Color.primary)
-                .frame(width: vertical ? Self.slot : Self.pillSegmentWidth, height: vertical ? Self.pillSegmentHeightVertical : Self.slot)
+                .frame(width: Self.pillSegmentWidth, height: Self.slot)
                 .background(selected ? Color.accentColor : .clear, in: Capsule())
                 .contentShape(Capsule())
                 .animation(.easeOut(duration: 0.15), value: selected)
