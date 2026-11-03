@@ -14,7 +14,7 @@ enum NoteBuilder {
         let bounds: CGRect
     }
 
-    static func build(words: [Word], strokes: [Stroke], windows: [WindowFrame], size: CGSize, display: String?, duration: Double) -> Note {
+    static func build(words: [Word], strokes: [Stroke], windows: [WindowFrame], size: CGSize, display: String?, duration: Double, firstMark: Int = 1) -> Note {
         var groups: [(start: Double, last: Double, bounds: CGRect)] = []
         for stroke in strokes where stroke.start >= 0 && stroke.start <= duration {
             let padding = max(stroke.bounds.width, stroke.bounds.height) * 0.08
@@ -29,7 +29,7 @@ enum NoteBuilder {
         }
         let marks = groups.enumerated().map { index, group in
             let box = group.bounds.integral
-            return NoteMark(number: index + 1, start: group.start, x: Int(box.minX), y: Int(box.minY), width: Int(box.width), height: Int(box.height), on: location(at: CGPoint(x: box.midX, y: box.midY), windows: windows))
+            return NoteMark(number: firstMark + index, start: group.start, x: Int(box.minX), y: Int(box.minY), width: Int(box.width), height: Int(box.height), on: location(at: CGPoint(x: box.midX, y: box.midY), windows: windows))
         }
         var phrases: [[Word]] = []
         for word in words {

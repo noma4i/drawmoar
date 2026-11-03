@@ -48,12 +48,34 @@ enum InkColor: String, CaseIterable {
     }
 }
 
+private struct VoiceSession {
+    let started: Date
+    var marks: [NoteMark]
+    var phrases: [NotePhrase]
+}
+
+@MainActor private final class Deadline<T> {
+    var continuation: CheckedContinuation<T, Error>?
+    var work: Task<Void, Never>?
+    var timer: Task<Void, Never>?
+
+    func finish(_ result: Result<T, Error>) {
+        guard let continuation else { return }
+        self.continuation = nil
+        work?.cancel()
+        timer?.cancel()
+        continuation.resume(with: result)
+    }
+}
+
 enum EditorMode: String {
     case draw, note
 }
 
 @MainActor @Observable final class EditorModel {
-    let voice = VoiceModel()
+    let voice: VoiceModel
+    private let deadline: Duration
+    private var voiceSession: VoiceSession?
     private let recorder = VoiceRecorder()
     private let startVoice: (() async throws -> Void)?
     private let stopVoice: (() -> (samples: [Float], started: Date))?
@@ -150,7 +172,9 @@ enum EditorMode: String {
     private var saveTask: Task<Void, Never>?
     private var historySaveFailed = false
 
-    init(client: (any MacCapturing)?, pairing: Pairing? = nil, defaults: UserDefaults = .standard, deletePairing: @escaping () throws -> Void = PairingStore.delete, delay: @escaping () async throws -> Void = { try await Task.sleep(for: .milliseconds(2500)) }, render: @escaping (UIImage, PKDrawing, CGRect?) throws -> Data = ImageRenderer.png, saveCapture: @escaping (CaptureHistory, CaptureEntry) throws -> HistoryEntry = { try $0.save($1) }, historyDirectory: URL? = nil, takeInboxImage: @escaping () -> UIImage? = { SharedInbox().takeNewest() }, startVoice: (() async throws -> Void)? = nil, stopVoice: (() -> (samples: [Float], started: Date))? = nil, transcribeVoice: (([Float]) async throws -> [NoteBuilder.Word])? = nil) {
+    init(client: (any MacCapturing)?, pairing: Pairing? = nil, defaults: UserDefaults = .standard, deletePairing: @escaping () throws -> Void = PairingStore.delete, delay: @escaping () async throws -> Void = { try await Task.sleep(for: .milliseconds(2500)) }, render: @escaping (UIImage, PKDrawing, CGRect?) throws -> Data = ImageRenderer.png, saveCapture: @escaping (CaptureHistory, CaptureEntry) throws -> HistoryEntry = { try $0.save($1) }, historyDirectory: URL? = nil, takeInboxImage: @escaping () -> UIImage? = { SharedInbox().takeNewest() }, startVoice: (() async throws -> Void)? = nil, stopVoice: (() -> (samples: [Float], started: Date))? = nil, transcribeVoice: (([Float]) async throws -> [NoteBuilder.Word])? = nil, voice: VoiceModel? = nil, deadline: Duration = .seconds(180)) {
+        self.voice = voice ?? VoiceModel()
+        self.deadline = deadline
         let directory = historyDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Captures", isDirectory: true)
         storage = CaptureHistory(directory: directory)
         self.client = client
@@ -203,14 +227,34 @@ enum EditorMode: String {
         transcribing = true
         defer { transcribing = false }
         do {
-            let words: [NoteBuilder.Word]
-            if let transcribeVoice {
-                words = try await transcribeVoice(samples)
-            } else {
-                words = try await voice.transcribe(samples)
+            let voice = voice
+            let transcribeVoice = transcribeVoice
+            let words = try await withDeadline {
+                if let transcribeVoice {
+                    return try await transcribeVoice(samples)
+                }
+                return try await voice.transcribe(samples)
             }
             try await sendVoiceNote(words: words, started: started, duration: duration)
         } catch { self.error = error.localizedDescription }
+    }
+
+    private func withDeadline<T>(_ operation: @escaping () async throws -> T) async throws -> T {
+        let limit = deadline
+        let state = Deadline<T>()
+        return try await withCheckedThrowingContinuation { continuation in
+            state.continuation = continuation
+            state.work = Task {
+                do {
+                    let value = try await operation()
+                    state.finish(.success(value))
+                } catch { state.finish(.failure(error)) }
+            }
+            state.timer = Task {
+                do { try await Task.sleep(for: limit) } catch { return }
+                state.finish(.failure(VoiceError.timedOut))
+            }
+        }
     }
 
     func sendVoiceNote(words: [NoteBuilder.Word], started: Date, duration: Double) async throws {
@@ -219,7 +263,13 @@ enum EditorMode: String {
         let strokes = image == nil ? [] : drawing.strokes.map {
             NoteBuilder.Stroke(start: $0.path.creationDate.timeIntervalSince(started), bounds: $0.renderBounds.applying(CGAffineTransform(scaleX: 1 / scale, y: 1 / scale)))
         }
-        let note = NoteBuilder.build(words: words, strokes: strokes, windows: windows, size: size, display: displays.first(where: { $0.id == selectedDisplay })?.name, duration: duration)
+        let previous = voiceSession ?? VoiceSession(started: started, marks: [], phrases: [])
+        let offset = started.timeIntervalSince(previous.started)
+        let segment = NoteBuilder.build(words: words, strokes: strokes, windows: windows, size: size, display: displays.first(where: { $0.id == selectedDisplay })?.name, duration: duration, firstMark: previous.marks.count + 1)
+        let marks = previous.marks + segment.marks.map { NoteMark(number: $0.number, start: $0.start + offset, x: $0.x, y: $0.y, width: $0.width, height: $0.height, on: $0.on) }
+        let phrases = previous.phrases + segment.phrases.map { NotePhrase(start: $0.start + offset, end: $0.end + offset, text: $0.text, marks: $0.marks) }
+        voiceSession = VoiceSession(started: previous.started, marks: marks, phrases: phrases)
+        let note = Note(displayName: segment.displayName, width: segment.width, height: segment.height, duration: offset + duration, marks: marks, phrases: phrases)
         let annotated = try image.map { try ImageRenderer.annotated(image: $0, drawing: drawing, crop: crop, marks: note.marks) } ?? Data()
         let screenshot = image?.pngData() ?? Data()
         guard let client else { throw MacError.unavailable([]) }
@@ -326,7 +376,7 @@ enum EditorMode: String {
         drawing = PKDrawing()
         crop = nil
         resetting = false
-        session = UUID().uuidString
+        replaceSession(UUID().uuidString)
         captureDate = Date()
         cropUndo = []
         delivered = false
@@ -378,7 +428,7 @@ enum EditorMode: String {
             drawing = PKDrawing()
             crop = nil
             resetting = false
-            session = UUID().uuidString
+            replaceSession(UUID().uuidString)
             captureDate = Date()
             cropUndo = []
             queueSave(currentEntry()!)
@@ -396,6 +446,11 @@ enum EditorMode: String {
 
     func newCapture() async {
         await refresh()
+    }
+
+    private func replaceSession(_ id: String) {
+        session = id
+        voiceSession = nil
     }
 
     private func currentEntry() -> CaptureEntry? {
@@ -476,7 +531,7 @@ enum EditorMode: String {
             windows = capture.windows
             drawing = capture.drawing
             crop = capture.crop
-            session = capture.id
+            replaceSession(capture.id)
             captureDate = capture.date
             cropUndo = []
             resetting = false

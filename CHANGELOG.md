@@ -6,10 +6,12 @@
 
 - Voice notes with on-device Parakeet Ultra transcription, numbered marks, and dictation.
 - Download progress for the voice model.
-- Built-in drawing tools: pen, marker, eraser, six colors.
+- Built-in drawing tools: pen, marker, eraser, six colors, shown as icons.
+- The voice model loads in the background at app start, so transcription starts without a delay. The editor shows "Loading model" while it loads. Transcription times out after 180 seconds.
 
 ### Changed
 
+- A voice session lasts until New: several recordings add to one note, marks keep counting, and each recording starts a new phrase.
 - Switch between automatic drawing sends and voice notes in the editor.
 
 ## [1.2.0] - 2026-11-02

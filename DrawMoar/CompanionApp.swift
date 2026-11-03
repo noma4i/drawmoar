@@ -31,6 +31,9 @@ import SwiftUI
                     model = EditorModel(client: client, pairing: pairing)
                 } catch { storeError = error.localizedDescription }
             }
+            .task(id: model == nil) {
+                await model?.voice.prepare()
+            }
             .onOpenURL { url in
                 Task {
                     if url.scheme == "drawmoar", url.host == "import" {

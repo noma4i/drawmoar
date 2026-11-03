@@ -80,7 +80,86 @@ final class VoiceTests: XCTestCase {
     }
 }
 
+extension VoiceTests {
+    @MainActor private func makeModel(_ client: VoiceClient, deadline: Duration = .seconds(180), transcribe: @escaping ([Float]) async throws -> [NoteBuilder.Word] = { _ in [] }) throws -> EditorModel {
+        let model = try EditorModel(client: client, defaults: XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), delay: {}, historyDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString), startVoice: {}, stopVoice: { ([], Date()) }, transcribeVoice: transcribe, deadline: deadline)
+        model.mode = .note
+        model.image = UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10)).image { _ in }
+        return model
+    }
+
+    private func stroke(at date: Date) -> PKStroke {
+        let point = PKStrokePoint(location: CGPoint(x: 1, y: 1), timeOffset: 0, size: CGSize(width: 1, height: 1), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+        return PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: [point, point], creationDate: date))
+    }
+
+    @MainActor func testSessionAccumulatesUntilNew() async throws {
+        let client = VoiceClient()
+        let model = try makeModel(client)
+        let first = Date(timeIntervalSince1970: 1_000_000)
+        let strokeOne = stroke(at: first.addingTimeInterval(1))
+        model.drawing = PKDrawing(strokes: [strokeOne])
+        try await model.sendVoiceNote(words: [.init(text: "one", start: 0.5, end: 0.8)], started: first, duration: 5)
+        let second = first.addingTimeInterval(10)
+        model.drawing = PKDrawing(strokes: [strokeOne, stroke(at: second.addingTimeInterval(1))])
+        try await model.sendVoiceNote(words: [.init(text: "two", start: 0.5, end: 0.8)], started: second, duration: 5)
+        let note = try XCTUnwrap(client.note)
+        XCTAssertEqual(note.phrases.map(\.text), ["one", "two"])
+        XCTAssertEqual(note.phrases[1].start, 10.5)
+        XCTAssertEqual(note.marks.map(\.number), [1, 2])
+        XCTAssertEqual(note.marks.count, 2)
+        XCTAssertEqual(note.duration, 15)
+        XCTAssertEqual(client.sessions.count, 2)
+        XCTAssertEqual(Set(client.sessions).count, 1)
+
+        client.capturePNG = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10)).image { _ in }.pngData())
+        await model.newCapture()
+        XCTAssertNil(model.error)
+        let third = second.addingTimeInterval(20)
+        model.drawing = PKDrawing(strokes: [stroke(at: third.addingTimeInterval(1))])
+        try await model.sendVoiceNote(words: [.init(text: "new", start: 0.5, end: 0.8)], started: third, duration: 5)
+        let fresh = try XCTUnwrap(client.note)
+        XCTAssertEqual(fresh.phrases.map(\.text), ["new"])
+        XCTAssertEqual(fresh.marks.map(\.number), [1])
+        XCTAssertEqual(fresh.phrases[0].start, 0.5)
+        XCTAssertEqual(client.sessions.count, 3)
+        XCTAssertNotEqual(client.sessions[2], client.sessions[0])
+    }
+
+    @MainActor func testPrepareLoadsOnce() async {
+        var loads = 0
+        let voice = VoiceModel(loader: {
+            loads += 1
+            try await Task.sleep(for: .milliseconds(50))
+            return { _ in [] }
+        }, installedProbe: { true })
+        async let first: Void = voice.prepare()
+        async let second: Void = voice.prepare()
+        _ = await (first, second)
+        XCTAssertEqual(loads, 1)
+        XCTAssertTrue(voice.ready)
+        XCTAssertFalse(voice.loading)
+        await voice.prepare()
+        XCTAssertEqual(loads, 1)
+    }
+
+    @MainActor func testTranscriptionDeadline() async throws {
+        let model = try makeModel(VoiceClient(), deadline: .milliseconds(50)) { _ in
+            try await Task.sleep(for: .seconds(1000))
+            return []
+        }
+        await model.toggleRecording()
+        XCTAssertTrue(model.recording)
+        await model.toggleRecording()
+        XCTAssertEqual(model.error, "Transcription timed out")
+        XCTAssertFalse(model.transcribing)
+        XCTAssertFalse(model.recording)
+    }
+}
+
 @MainActor private final class VoiceClient: MacCapturing {
+    var capturePNG: Data?
+    var sessions: [String] = []
     var annotated = Data()
     var screenshot = Data()
     var note: Note?
@@ -89,7 +168,8 @@ final class VoiceTests: XCTestCase {
     var noteCount = 0
     var onPaste: (() -> Void)?
     func capture(displayId _: UInt32?) async throws -> (png: Data, windows: [WindowFrame]) {
-        throw MacError.unexpected
+        guard let capturePNG else { throw MacError.unexpected }
+        return (capturePNG, [])
     }
 
     func displays() async throws -> [DisplayInfo] {
@@ -101,7 +181,8 @@ final class VoiceTests: XCTestCase {
         onPaste?()
     }
 
-    func note(annotated: Data, screenshot: Data, note: Note, session _: String) async throws {
+    func note(annotated: Data, screenshot: Data, note: Note, session: String) async throws {
+        sessions.append(session)
         self.annotated = annotated
         self.screenshot = screenshot
         self.note = note

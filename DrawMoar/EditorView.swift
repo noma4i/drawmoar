@@ -133,7 +133,7 @@ struct EditorView: View {
             .disabled(model.recording || model.startingRecording || model.transcribing)
             if model.mode == .note {
                 if model.transcribing {
-                    ProgressView("Transcribing")
+                    ProgressView(model.voice.loading ? "Loading model" : "Transcribing")
                 } else {
                     Button(model.recording ? "Stop recording" : "Record voice", systemImage: model.recording ? "stop.circle" : "mic") { Task { await model.toggleRecording() } }
                         .labelStyle(.iconOnly)
@@ -188,14 +188,17 @@ struct EditorView: View {
     private var bottomBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 4) {
-                Picker("Drawing tool", selection: Binding(get: { model.tool }, set: { model.setTool($0) })) {
-                    Text("Pen").tag(DrawTool.pen)
-                    Text("Marker").tag(DrawTool.marker)
-                    Text("Eraser").tag(DrawTool.eraser)
+                ForEach(DrawTool.allCases, id: \.self) { tool in
+                    Button { model.setTool(tool) } label: {
+                        Image(systemName: tool.symbol)
+                            .font(.title3)
+                            .foregroundStyle(model.tool == tool ? Color.accentColor : Color.secondary)
+                            .frame(width: 44, height: 44)
+                            .background(model.tool == tool ? Color.accentColor.opacity(0.15) : .clear, in: Capsule())
+                    }
+                    .accessibilityLabel(tool.title)
+                    .accessibilityAddTraits(model.tool == tool ? .isSelected : [])
                 }
-                .pickerStyle(.segmented)
-                .accessibilityLabel("Drawing tool")
-                .frame(width: 210)
                 ForEach(InkColor.allCases, id: \.self) { ink in
                     Button { model.setInkColor(ink) } label: {
                         Circle().fill(Color(ink.color))
@@ -240,5 +243,23 @@ struct EditorView: View {
         }
         .font(.caption)
         .padding(.horizontal, 8)
+    }
+}
+
+private extension DrawTool {
+    var symbol: String {
+        switch self {
+        case .pen: "pencil.tip"
+        case .marker: "highlighter"
+        case .eraser: "eraser"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .pen: "Pen"
+        case .marker: "Marker"
+        case .eraser: "Eraser"
+        }
     }
 }
