@@ -6,6 +6,30 @@ import SwiftUI
 import XCTest
 
 @MainActor final class EditorTests: XCTestCase {
+    func testToolRowWidthSubtractsSideList() {
+        XCTAssertEqual(EditorLayoutPolicy.toolRowWidth(containerWidth: 1000, sideListShown: false), 1000)
+        XCTAssertEqual(EditorLayoutPolicy.toolRowWidth(containerWidth: 1000, sideListShown: true), 719)
+        XCTAssertEqual(ToolRowLayout.layout(forWidth: EditorLayoutPolicy.toolRowWidth(containerWidth: 1000, sideListShown: true)), .oneRow)
+    }
+
+    func testHistoryNeverPresentsBySizeClassChange() {
+        var panel = HistoryPanel()
+        panel.toggle(regular: true)
+        XCTAssertTrue(panel.showsList(regular: true))
+        XCTAssertFalse(panel.showsSheet(regular: false))
+        panel.sizeClassChanged()
+        XCTAssertFalse(panel.showsSheet(regular: false))
+        XCTAssertTrue(panel.showsList(regular: true))
+        panel.toggle(regular: false)
+        XCTAssertTrue(panel.showsSheet(regular: false))
+        XCTAssertFalse(panel.showsList(regular: false))
+        panel.sizeClassChanged()
+        XCTAssertFalse(panel.showsSheet(regular: false))
+        XCTAssertFalse(panel.showsSheet(regular: true))
+        panel.close()
+        XCTAssertFalse(panel.showsList(regular: true))
+    }
+
     func testToolRowLayoutByWidth() {
         XCTAssertEqual(ToolRowLayout.oneRowWidth, 692)
         XCTAssertEqual(ToolRowLayout.oneRowWithPillWidth, 858)

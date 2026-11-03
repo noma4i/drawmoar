@@ -11,20 +11,25 @@ struct EditorView: View {
     @State private var cropping = false
     @State private var selectingWindow = false
     @State private var cropDraft: CGRect?
-    @State private var showHistory = false
+    @State private var history = HistoryPanel()
     @State private var canvas = PKCanvasView()
     @State private var settingsChanged = false
-    @State private var toolRowWidth: CGFloat = 0
     @State private var replay: ReplaySource?
 
     var body: some View {
-        HStack(spacing: 0) {
-            if sizeClass == .regular, showHistory {
-                historyList.frame(width: 280)
-                Divider()
+        GeometryReader { proxy in
+            let regular = sizeClass == .regular
+            let sideList = history.showsList(regular: regular)
+            let layout = ToolRowLayout.layout(forWidth: EditorLayoutPolicy.toolRowWidth(containerWidth: proxy.size.width, sideListShown: sideList))
+            HStack(spacing: 0) {
+                if sideList {
+                    historyList.frame(width: EditorLayoutPolicy.historyListWidth)
+                    Divider()
+                }
+                editor(layout: layout)
             }
-            editor
         }
+        .onChange(of: sizeClass) { history.sizeClassChanged() }
         .task {
             UIApplication.shared.isIdleTimerDisabled = scenePhase == .active
             if model.pairing == nil {
@@ -43,8 +48,8 @@ struct EditorView: View {
         }) {
             SettingsView(model: model, browser: browser, flow: flow, paired: paired, changed: $settingsChanged)
         }
-        .sheet(isPresented: Binding(get: { showHistory && sizeClass != .regular }, set: { showHistory = $0 })) {
-            NavigationStack { historyList.navigationTitle("History").toolbar { Button("Done") { showHistory = false } } }
+        .sheet(isPresented: Binding(get: { history.showsSheet(regular: sizeClass == .regular) }, set: { history.sheetOpen = $0 })) {
+            NavigationStack { historyList.navigationTitle("History").toolbar { Button("Done") { history.close() } } }
         }
         .fullScreenCover(item: $replay) { ReplayView(source: $0) }
         .alert("\(model.voice.engine.title) is not installed", isPresented: $model.showVoiceSettings) {
@@ -77,7 +82,7 @@ struct EditorView: View {
         List {
             ForEach(model.history) { entry in
                 Button {
-                    showHistory = false
+                    history.close()
                     cropping = false
                     selectingWindow = false
                     Task { await model.select(entry) }
@@ -124,19 +129,19 @@ struct EditorView: View {
     }
 
     private func openReplay(_ entry: HistoryEntry) {
-        showHistory = false
+        history.close()
         Task { replay = await model.replaySource(for: entry) }
     }
 
-    private var editor: some View {
+    private func editor(layout: ToolRowLayout) -> some View {
         NavigationStack {
             VStack(spacing: 0) {
-                toolRow.background(.regularMaterial)
+                toolRow(layout: layout).background(.regularMaterial)
                 canvasArea
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                leadingToolbar
+                leadingToolbar(layout: layout)
                 trailingToolbar
             }
         }
@@ -219,16 +224,16 @@ struct EditorView: View {
         EditorBarState(mode: model.mode, recording: model.recording, startingRecording: model.startingRecording, transcribing: model.transcribing, voiceLoading: model.voice.loading, selecting: selecting, hasImage: model.image != nil, hasWindows: !model.windows.isEmpty, canUndo: model.canUndo, canRedo: model.canRedo, replayAvailable: model.replayAvailable)
     }
 
-    @ToolbarContentBuilder private var leadingToolbar: some ToolbarContent {
+    @ToolbarContentBuilder private func leadingToolbar(layout: ToolRowLayout) -> some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             barButton("Settings", "gearshape") { flow.showSettings = true }
         }
         ToolbarItem(placement: .topBarLeading) {
-            barButton("History", "sidebar.left") { showHistory.toggle() }
+            barButton("History", "sidebar.left") { history.toggle(regular: sizeClass == .regular) }
         }
         .visibility(.low)
         ToolbarItem(placement: .principal) {
-            if ToolRowLayout.layout(forWidth: toolRowWidth) == .oneRowWithPill {
+            if layout == .oneRowWithPill {
                 Color.clear.frame(width: 0, height: Self.slot)
             } else {
                 modePicker
@@ -347,13 +352,13 @@ struct EditorView: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private var toolRow: some View {
+    private func toolRow(layout: ToolRowLayout) -> some View {
         VStack(spacing: 0) {
-            switch ToolRowLayout.layout(forWidth: toolRowWidth) {
+            switch layout {
             case .oneRow, .oneRowWithPill:
                 HStack(spacing: 0) {
                     HStack(spacing: 0) {
-                        if ToolRowLayout.layout(forWidth: toolRowWidth) == .oneRowWithPill {
+                        if layout == .oneRowWithPill {
                             modePicker
                             divider
                         }
@@ -367,6 +372,7 @@ struct EditorView: View {
                     statusSlot
                 }
                 .frame(height: Self.slot)
+                .transition(.opacity)
             case .twoRows:
                 HStack(spacing: 0) {
                     toolsGroup
@@ -384,9 +390,9 @@ struct EditorView: View {
                 .frame(height: Self.slot)
             }
         }
+        .transaction(value: layout) { $0.animation = .easeOut(duration: 0.15) }
         .buttonStyle(.plain)
         .padding(.vertical, 4)
-        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { toolRowWidth = $0 }
     }
 
     private var statusSlot: some View {
@@ -486,6 +492,45 @@ private extension DrawTool {
         case .marker: "Marker"
         case .eraser: "Eraser"
         }
+    }
+}
+
+enum EditorLayoutPolicy {
+    static let historyListWidth: CGFloat = 280
+    static let dividerWidth: CGFloat = 1
+
+    static func toolRowWidth(containerWidth: CGFloat, sideListShown: Bool) -> CGFloat {
+        sideListShown ? containerWidth - historyListWidth - dividerWidth : containerWidth
+    }
+}
+
+struct HistoryPanel: Equatable {
+    var listOpen = false
+    var sheetOpen = false
+
+    func showsList(regular: Bool) -> Bool {
+        regular && listOpen
+    }
+
+    func showsSheet(regular: Bool) -> Bool {
+        !regular && sheetOpen
+    }
+
+    mutating func toggle(regular: Bool) {
+        if regular {
+            listOpen.toggle()
+        } else {
+            sheetOpen.toggle()
+        }
+    }
+
+    mutating func close() {
+        listOpen = false
+        sheetOpen = false
+    }
+
+    mutating func sizeClassChanged() {
+        sheetOpen = false
     }
 }
 

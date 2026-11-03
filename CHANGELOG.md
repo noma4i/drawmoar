@@ -28,6 +28,7 @@
 - The Draw/Note switch is larger (two side-by-side segments, each at least 44 pt high and 72 pt wide, always horizontal and centered on the tool row), and when the screen is wide enough it sits on one line with the tools, colors, widths, and status.
 - The transcript on the phone shows only the time and the phrase, without mark numbers.
 - The tool row fits narrow screens: it splits into two rows (tools and colors, then widths and the status capsule) when one row does not fit, and the status capsule never covers a color or width button. Draw/Note shows the words "Draw" and "Note" in every layout.
+- Folding, unfolding, and rotating the device no longer flashes the two-row tool layout, no longer opens or closes the History sheet by itself, and keeps the drawing, tool, mode, crop, and Replay state.
 - Connecting through Tailscale or a Remote address also tries the default port 47823, so a pairing that stored a wrong port still connects.
 - Voice notes no longer contain engine markers such as [BLANK_AUDIO] or [MUSIC]; empty phrases are not created.
 - A recording with no sound shows "No audio recorded. Check the microphone." instead of sending an empty note. Each recording starts a fresh audio engine after the audio session is activated in normal input mode.
