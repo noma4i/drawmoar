@@ -110,12 +110,28 @@ enum EditorMode: String {
         didSet { defaults.set(retention.rawValue, forKey: "captureRetention") }
     }
 
-    private var cropUndo: [CGRect?] = []
+    private enum Action {
+        case drawing(before: PKDrawing, after: PKDrawing)
+        case crop(before: CGRect?, after: CGRect?)
+    }
+
+    private var undoStack: [Action] = []
+    private var redoStack: [Action] = []
+    private var applyingHistory = false
+    var canUndo: Bool {
+        !undoStack.isEmpty
+    }
+
+    var canRedo: Bool {
+        !redoStack.isEmpty
+    }
+
     private var windowChain: [WindowFrame] = []
     private var windowDepth = 0
     var drawing = PKDrawing() {
         didSet {
             if drawing != oldValue {
+                record(.drawing(before: oldValue, after: drawing))
                 edited()
             }
         }
@@ -398,7 +414,7 @@ enum EditorMode: String {
         resetting = false
         replaceSession(UUID().uuidString)
         captureDate = Date()
-        cropUndo = []
+        clearHistory()
         delivered = false
         sendError = nil
         queueSave(currentEntry()!)
@@ -450,7 +466,7 @@ enum EditorMode: String {
             resetting = false
             replaceSession(UUID().uuidString)
             captureDate = Date()
-            cropUndo = []
+            clearHistory()
             queueSave(currentEntry()!)
             _ = await flushHistory()
             revision += 1
@@ -556,7 +572,7 @@ enum EditorMode: String {
                 voiceSession = VoiceSession(started: timeline.sessionStart, marks: timeline.note.marks, phrases: timeline.note.phrases, recordings: timeline.recordings)
             }
             captureDate = capture.date
-            cropUndo = []
+            clearHistory()
             resetting = false
             delivered = false
             hasPendingSend = true
@@ -647,13 +663,13 @@ enum EditorMode: String {
         drawing = PKDrawing()
         crop = nil
         resetting = false
-        cropUndo = []
+        clearHistory()
         delivered = false
     }
 
     func applyCrop(_ rect: CGRect) {
         guard crop != rect else { return }
-        cropUndo.append(crop)
+        record(.crop(before: crop, after: rect))
         crop = rect
     }
 
@@ -697,10 +713,36 @@ enum EditorMode: String {
         CGRect(x: frame.x, y: frame.y, width: frame.width, height: frame.height)
     }
 
-    func undoCrop() -> Bool {
-        guard !cropUndo.isEmpty else { return false }
-        crop = cropUndo.removeLast()
-        return true
+    func undo() {
+        guard let action = undoStack.popLast() else { return }
+        apply(action, forward: false)
+        redoStack.append(action)
+    }
+
+    func redo() {
+        guard let action = redoStack.popLast() else { return }
+        apply(action, forward: true)
+        undoStack.append(action)
+    }
+
+    private func apply(_ action: Action, forward: Bool) {
+        applyingHistory = true
+        defer { applyingHistory = false }
+        switch action {
+        case let .drawing(before, after): drawing = forward ? after : before
+        case let .crop(before, after): crop = forward ? after : before
+        }
+    }
+
+    private func record(_ action: Action) {
+        guard !resetting, !applyingHistory else { return }
+        undoStack.append(action)
+        redoStack = []
+    }
+
+    private func clearHistory() {
+        undoStack = []
+        redoStack = []
     }
 
     private func edited() {

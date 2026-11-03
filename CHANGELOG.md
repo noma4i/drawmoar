@@ -11,9 +11,11 @@
 - Replay of a past voice session: strokes are drawn again in time with the audio, marks appear when they were made, and the transcript shows time pills you can tap to seek. Pauses longer than 3 seconds are shortened to 1 second. Open it from History (swipe or long-press) or the editor toolbar.
 - Built-in drawing tools: pen, marker, eraser, six colors, shown as icons.
 - The voice model loads in the background at app start, so transcription starts without a delay. The first launch after an install or update prepares the model for about a minute, later launches are instant. The microphone shows a small spinner while the model prepares, and Settings shows "Preparing...". Recording works meanwhile. Transcription times out after 180 seconds.
+- Redo next to Undo: one ordered history covers strokes and crop changes, and Redo appears after an Undo.
 
 ### Changed
 
+- Top toolbar buttons have 44 pt touch targets with wider spacing. On a narrow phone, Settings, History, Crop, Window, and New move into a More menu. On a wide landscape screen the toolbar moves to a trailing rail and stays inside the safe area.
 - The mark number on the note image is a blue circle with a white digit, sized to 3.5% of the image long side (at least 28 px), so it stays readable on large screens.
 - Connecting to the Mac races Bonjour, Tailscale, and Remote address routes at once and picks the best one (local network wins when it is nearly as fast). When Wi-Fi or the network changes, DrawMoar picks a new route by itself. Settings shows the route in use.
 - A voice session lasts until New: several recordings add to one note, marks keep counting, and each recording starts a new phrase.

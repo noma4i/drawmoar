@@ -2,6 +2,7 @@ import CompanionKit
 @testable import DrawMoar
 import ImageIO
 import PencilKit
+import SwiftUI
 import XCTest
 
 @MainActor final class EditorTests: XCTestCase {
@@ -475,7 +476,7 @@ import XCTest
         model.applyCrop(CGRect(x: 0, y: 0, width: 1, height: 1))
         let cropped = try XCTUnwrap(UIImage(data: ImageRenderer.png(image: image, drawing: model.drawing, crop: model.crop))?.cgImage)
         XCTAssertEqual(cropped.width, 1)
-        XCTAssertTrue(model.undoCrop())
+        model.undo()
         let original = try XCTUnwrap(UIImage(data: ImageRenderer.png(image: image, drawing: model.drawing, crop: model.crop))?.cgImage)
         XCTAssertEqual(original.width, image.cgImage?.width)
     }
@@ -514,7 +515,7 @@ import XCTest
         }
         XCTAssertEqual(model.selectWindow(at: point, confirm: true), partRect)
         XCTAssertEqual(model.crop, partRect)
-        XCTAssertTrue(model.undoCrop())
+        model.undo()
         XCTAssertNil(model.crop)
         model.resetWindowSelection()
         XCTAssertEqual(model.selectWindow(at: point, confirm: true), front)
@@ -605,6 +606,58 @@ private final class HistoryWrites {
 
     func finishPaste() {
         pendingPaste?.resume(); pendingPaste = nil
+    }
+
+    func testUndoRedoOrdersStrokesAndCrop() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = try EditorModel(client: FakeClient(), defaults: XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), historyDirectory: directory)
+        await model.newCapture()
+        XCTAssertFalse(model.canUndo)
+        XCTAssertFalse(model.canRedo)
+        func stroke(_ x: CGFloat) -> PKStroke {
+            let point = PKStrokePoint(location: CGPoint(x: x, y: x), timeOffset: 0, size: CGSize(width: 4, height: 4), opacity: 1, force: 1, azimuth: 0, altitude: 0)
+            return PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: [point, point], creationDate: Date()))
+        }
+        let cropRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+        model.drawing = PKDrawing(strokes: [stroke(1)])
+        model.applyCrop(cropRect)
+        model.drawing = PKDrawing(strokes: [stroke(1), stroke(2)])
+        model.undo()
+        XCTAssertEqual(model.drawing.strokes.count, 1)
+        XCTAssertEqual(model.crop, cropRect)
+        XCTAssertTrue(model.canRedo)
+        model.undo()
+        XCTAssertNil(model.crop)
+        XCTAssertEqual(model.drawing.strokes.count, 1)
+        model.undo()
+        XCTAssertEqual(model.drawing.strokes.count, 0)
+        XCTAssertFalse(model.canUndo)
+        model.redo()
+        XCTAssertEqual(model.drawing.strokes.count, 1)
+        XCTAssertNil(model.crop)
+        model.redo()
+        XCTAssertEqual(model.crop, cropRect)
+        XCTAssertTrue(model.canRedo)
+        model.drawing = PKDrawing(strokes: [stroke(1), stroke(3)])
+        XCTAssertFalse(model.canRedo)
+        model.undo()
+        XCTAssertTrue(model.canUndo)
+        await model.newCapture()
+        XCTAssertFalse(model.canUndo)
+        XCTAssertFalse(model.canRedo)
+    }
+
+    func testToolbarLayoutDecision() {
+        let cases: [(CGFloat, CGFloat, UserInterfaceSizeClass?, ToolbarLayout)] = [
+            (393, 852, .compact, .topRow),
+            (852, 393, .compact, .topRow),
+            (1100, 750, .regular, .trailingRail),
+            (820, 1180, .regular, .topRow),
+        ]
+        for (width, height, sizeClass, expected) in cases {
+            XCTAssertEqual(ToolbarLayout.resolve(width: width, height: height, horizontalSizeClass: sizeClass), expected)
+        }
     }
 }
 

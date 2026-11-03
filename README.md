@@ -64,7 +64,7 @@ Capture the Mac screen, draw with PencilKit, and crop the image. DrawMoar sends 
 
 DrawMoar races all routes at once: the Mac name on the local network (Bonjour), the addresses from the pairing QR (for example Tailscale), and the optional Remote address in Settings. The first route that completes the handshake wins, and a local route wins if it is ready within 250 ms of a Tailscale route. The last working route starts first. When the network changes (for example Wi-Fi is turned off), DrawMoar drops the old route and races again, so it keeps working over Tailscale. Settings shows the route in use.
 
-Choose Window to select a window. Tap again to select a deeper part, or double tap to confirm. Open History on the left to revisit captures or swipe to delete one. Settings includes the paired Mac and display choice (Auto or a fixed display), storage size and retention, and System, Light, or Dark appearance.
+Undo reverts the latest stroke or crop change, and Redo appears next to it to bring it back. Choose Window to select a window. Tap again to select a deeper part, or double tap to confirm. Open History on the left to revisit captures or swipe to delete one. Settings includes the paired Mac and display choice (Auto or a fixed display), storage size and retention, and System, Light, or Dark appearance.
 
 ## Simulator
 
