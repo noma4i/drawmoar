@@ -647,33 +647,6 @@ private final class HistoryWrites {
         XCTAssertFalse(model.canUndo)
         XCTAssertFalse(model.canRedo)
     }
-
-    func testToolbarLayoutDecision() {
-        let cases: [(CGFloat, CGFloat, UserInterfaceSizeClass?, ToolbarLayout)] = [
-            (393, 852, .compact, .topRow),
-            (852, 393, .compact, .topRow),
-            (1100, 750, .regular, .trailingRail),
-            (820, 1180, .regular, .topRow),
-        ]
-        for (width, height, sizeClass, expected) in cases {
-            XCTAssertEqual(ToolbarLayout.resolve(width: width, height: height, horizontalSizeClass: sizeClass), expected)
-        }
-    }
-
-    func testToolbarRailOrderMatchesGroups() {
-        XCTAssertEqual(ToolbarPlan.railGroups, [[.settings, .history], [.mode, .mic, .replay], [.crop, .window], [.undo, .redo], [.new]])
-        XCTAssertEqual(ToolbarPlan.length(of: ToolbarPlan.railGroups), 588)
-    }
-
-    func testToolbarRowWidthMath() {
-        let phone = ToolbarPlan.rowGroups(availableWidth: 393 - 2 * ToolbarPlan.inset)
-        XCTAssertTrue(phone.flatMap { $0 }.contains(.more))
-        XCTAssertFalse(phone.flatMap { $0 }.contains(.crop))
-        XCTAssertLessThanOrEqual(ToolbarPlan.length(of: phone), 393 - 2 * ToolbarPlan.inset)
-        let wide = ToolbarPlan.rowGroups(availableWidth: 852 - 2 * ToolbarPlan.inset)
-        XCTAssertEqual(wide, ToolbarPlan.railGroups)
-        XCTAssertLessThanOrEqual(ToolbarPlan.length(of: wide), 852 - 2 * ToolbarPlan.inset)
-    }
 }
 
 @MainActor private final class TestDelay {
