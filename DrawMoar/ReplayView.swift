@@ -302,10 +302,14 @@ struct TranscriptRow: View {
     var compact = false
     let seek: () -> Void
 
+    static func visibleTexts(_ phrase: NotePhrase) -> [String] {
+        [ReplayTimeline.clock(phrase.start), phrase.text]
+    }
+
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: compact ? 6 : 10) {
             Button(action: seek) {
-                Text(ReplayTimeline.clock(phrase.start))
+                Text(Self.visibleTexts(phrase)[0])
                     .font((compact ? Font.caption2 : Font.caption).monospacedDigit().weight(.semibold))
                     .foregroundStyle(active ? Color.white : Color.accentColor)
                     .padding(.horizontal, compact ? 7 : 10)
@@ -315,18 +319,10 @@ struct TranscriptRow: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Seek to \(ReplayTimeline.clock(phrase.start))")
             VStack(alignment: .leading, spacing: compact ? 2 : 6) {
-                Text(phrase.text)
+                Text(Self.visibleTexts(phrase)[1])
                     .font(compact ? .caption : .body)
                     .foregroundStyle(upcoming ? Color.secondary : Color.primary)
                     .fixedSize(horizontal: false, vertical: true)
-                if !phrase.marks.isEmpty, !compact {
-                    HStack(spacing: 4) {
-                        ForEach(phrase.marks, id: \.self) { MarkChip(number: $0, side: 20) }
-                    }
-                }
-            }
-            if compact {
-                ForEach(phrase.marks, id: \.self) { MarkChip(number: $0, side: 16) }
             }
             Spacer(minLength: 0)
         }

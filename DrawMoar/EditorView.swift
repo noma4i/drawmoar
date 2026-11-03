@@ -135,7 +135,10 @@ struct EditorView: View {
                 canvasArea
             }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { editorToolbar }
+            .toolbar {
+                leadingToolbar
+                trailingToolbar
+            }
         }
     }
 
@@ -151,6 +154,12 @@ struct EditorView: View {
                 }
             }, canvas: canvas, tool: EditorModel.pkTool(model.tool, color: model.inkColor, width: model.lineWidth, scale: EditorModel.canvasScale(for: CGSize(width: image.cgImage?.width ?? 1, height: image.cgImage?.height ?? 1))), setUsingTool: model.setUsingTool)
                 .overlay(alignment: .bottom) { transcriptOverlay(image: image) }
+                .overlay(alignment: .bottom) {
+                    if selecting {
+                        selectionPill.transition(.opacity)
+                    }
+                }
+                .animation(.easeOut(duration: 0.15), value: selecting)
         } else {
             Spacer()
             if model.busy {
@@ -192,6 +201,9 @@ struct EditorView: View {
     fileprivate static let groupGap: CGFloat = 16
     fileprivate static let inset: CGFloat = 8
     fileprivate static let statusWidth: CGFloat = 72
+    fileprivate static let pillSegmentWidth: CGFloat = 72
+    fileprivate static let pillSegmentHeightVertical: CGFloat = 56
+    fileprivate static let pillWidth: CGFloat = 2 * pillSegmentWidth + 6
 
     private func barButton(_ title: String, _ symbol: String, titled: Bool = false, tint: Color? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -204,7 +216,11 @@ struct EditorView: View {
         .accessibilityLabel(title)
     }
 
-    @ToolbarContentBuilder private var editorToolbar: some ToolbarContent {
+    private var barState: EditorBarState {
+        EditorBarState(mode: model.mode, recording: model.recording, startingRecording: model.startingRecording, transcribing: model.transcribing, voiceLoading: model.voice.loading, selecting: selecting, hasImage: model.image != nil, hasWindows: !model.windows.isEmpty, canUndo: model.canUndo, canRedo: model.canRedo, replayAvailable: model.replayAvailable)
+    }
+
+    @ToolbarContentBuilder private var leadingToolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             barButton("Settings", "gearshape") { flow.showSettings = true }
         }
@@ -213,109 +229,138 @@ struct EditorView: View {
         }
         .visibility(.low)
         ToolbarItem(placement: .principal) {
-            modePicker
+            if ToolRowLayout.layout(forWidth: toolRowWidth) == .oneRowWithPill {
+                Color.clear.frame(width: 0, height: Self.slot)
+            } else {
+                modePicker
+            }
         }
         .visibility(.high)
-        if selecting {
-            ToolbarItem(placement: .cancellationAction) {
-                barButton("Cancel", "xmark.circle") { cropping = false; selectingWindow = false; cropDraft = nil }
-            }
-            .visibility(.high)
-            ToolbarItem(placement: .confirmationAction) {
-                barButton("Done", "checkmark.circle") {
-                    if let cropDraft {
-                        model.applyCrop(cropDraft)
-                    }
-                    cropping = false
-                    selectingWindow = false
-                }
-            }
-            .visibility(.high)
-        } else {
-            if model.mode == .note {
-                ToolbarItem(placement: .topBarTrailing) {
-                    micButton
-                }
-                .visibility(.high)
-            }
-            if model.replayAvailable {
-                ToolbarItem(placement: .topBarTrailing) {
-                    barButton("Replay", "play.circle", titled: true) { Task { replay = await model.replaySourceForCurrent() } }
-                }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                barButton("Crop", "crop", titled: true) { startCrop() }
-                    .disabled(model.image == nil)
-            }
-            .visibility(.low)
-            ToolbarItem(placement: .topBarTrailing) {
-                barButton("Window", "macwindow", titled: true) { startWindowSelection() }
-                    .disabled(model.image == nil || model.windows.isEmpty)
-            }
-            .visibility(.low)
-            ToolbarSpacer(.fixed, placement: .topBarTrailing)
-            ToolbarItem(placement: .topBarTrailing) {
-                barButton("Undo", "arrow.uturn.backward") { model.undo() }
-                    .disabled(!model.canUndo)
-            }
-            .visibility(.high)
-            if model.canRedo {
-                ToolbarItem(placement: .topBarTrailing) {
-                    barButton("Redo", "arrow.uturn.forward") { model.redo() }
-                }
-                .visibility(.high)
-            }
-            ToolbarSpacer(.fixed, placement: .topBarTrailing)
-            ToolbarItem(placement: .topBarTrailing) {
-                barButton("New", "plus.viewfinder", titled: true) { Task { await model.newCapture() } }
-            }
-            .visibility(.high)
-        }
     }
 
-    private var micButton: some View {
-        ZStack {
-            if model.transcribing {
-                ProgressView()
-                    .accessibilityLabel(model.voice.loading ? "Loading model" : "Transcribing")
-            } else {
-                barButton(model.recording ? "Stop recording" : "Record voice", model.recording ? "stop.circle.fill" : "mic", tint: model.recording ? .red : nil) {
-                    Task { await model.toggleRecording() }
+    @ToolbarContentBuilder private var trailingToolbar: some ToolbarContent {
+        let state = barState
+        ToolbarItem(placement: .topBarTrailing) {
+            micButton(state)
+        }
+        .visibility(.high)
+        ToolbarItem(placement: .topBarTrailing) {
+            barButton("Replay", "play.circle", titled: true) { Task { replay = await model.replaySourceForCurrent() } }
+                .disabled(!EditorBarItem.replay.isEnabled(state))
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            barButton("Crop", "crop", titled: true) { startCrop() }
+                .disabled(!EditorBarItem.crop.isEnabled(state))
+        }
+        .visibility(.low)
+        ToolbarItem(placement: .topBarTrailing) {
+            barButton("Window", "macwindow", titled: true) { startWindowSelection() }
+                .disabled(!EditorBarItem.window.isEnabled(state))
+        }
+        .visibility(.low)
+        ToolbarSpacer(.fixed, placement: .topBarTrailing)
+        ToolbarItem(placement: .topBarTrailing) {
+            barButton("Undo", "arrow.uturn.backward") { model.undo() }
+                .disabled(!EditorBarItem.undo.isEnabled(state))
+        }
+        .visibility(.high)
+        ToolbarItem(placement: .topBarTrailing) {
+            barButton("Redo", "arrow.uturn.forward") { model.redo() }
+                .disabled(!EditorBarItem.redo.isEnabled(state))
+        }
+        .visibility(.high)
+        ToolbarSpacer(.fixed, placement: .topBarTrailing)
+        ToolbarItem(placement: .topBarTrailing) {
+            barButton("New", "plus.viewfinder", titled: true) { Task { await model.newCapture() } }
+        }
+        .visibility(.high)
+    }
+
+    private var selectionPill: some View {
+        HStack(spacing: 8) {
+            Button("Cancel", systemImage: "xmark.circle") { cropping = false; selectingWindow = false; cropDraft = nil }
+            Button("Done", systemImage: "checkmark.circle") {
+                if let cropDraft {
+                    model.applyCrop(cropDraft)
                 }
-                .disabled(model.startingRecording)
-                .overlay(alignment: .topTrailing) {
-                    if model.voice.loading {
-                        ProgressView()
-                            .controlSize(.mini)
-                            .accessibilityHidden(true)
-                            .transition(.opacity)
-                    }
-                }
-                .accessibilityValue(model.voice.loading ? "Preparing voice model" : "")
+                cropping = false
+                selectingWindow = false
             }
         }
-        .animation(.easeOut(duration: 0.15), value: model.recording)
-        .animation(.easeOut(duration: 0.15), value: model.transcribing)
-        .animation(.easeOut(duration: 0.15), value: model.voice.loading)
+        .buttonStyle(.bordered)
+        .padding(8)
+        .background(.regularMaterial, in: Capsule())
+        .padding(.bottom, 12)
+    }
+
+    private func micButton(_ state: EditorBarState) -> some View {
+        let busy = state.startingRecording || state.transcribing || state.voiceLoading
+        return Button {
+            Task { await model.toggleRecording() }
+        } label: {
+            Image(systemName: state.recording ? "stop.circle.fill" : "mic")
+                .opacity(busy ? 0.35 : 1)
+                .frame(width: Self.slot, height: Self.slot)
+                .overlay(alignment: .topTrailing) {
+                    if busy {
+                        ProgressView().controlSize(.mini).frame(maxWidth: 16, maxHeight: 16).accessibilityHidden(true)
+                    }
+                }
+                .animation(.easeOut(duration: 0.15), value: busy)
+                .animation(.easeOut(duration: 0.15), value: state.recording)
+        }
+        .tint(state.recording ? .red : nil)
+        .disabled(!EditorBarItem.mic.isEnabled(state))
+        .accessibilityLabel(state.recording ? "Stop recording" : "Record voice")
+        .accessibilityHint(state.mode == .note ? "" : "Switch to Note to record")
+        .accessibilityValue(state.transcribing ? "Transcribing" : busy ? "Preparing voice model" : "")
     }
 
     private var modePicker: some View {
-        let locked = model.recording || model.startingRecording || model.transcribing
-        return Picker("Drawing mode", selection: $model.mode) {
-            Text("Draw").accessibilityLabel("Draw mode").tag(EditorMode.draw)
-            Text("Note").accessibilityLabel("Note mode").tag(EditorMode.note)
+        let locked = !EditorBarItem.mode.isEnabled(barState)
+        return BarAxis { vertical in
+            let layout = vertical ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
+            layout {
+                modeSegment("Draw", .draw, vertical: vertical)
+                modeSegment("Note", .note, vertical: vertical)
+            }
+            .padding(vertical ? EdgeInsets(top: 3, leading: 0, bottom: 3, trailing: 0) : EdgeInsets(top: 0, leading: 3, bottom: 0, trailing: 3))
+            .background(Color.secondary.opacity(0.15), in: Capsule())
+            .fixedSize()
         }
-        .pickerStyle(.segmented)
-        .frame(width: 120)
         .disabled(locked)
+        .opacity(locked ? 0.5 : 1)
+        .animation(.easeOut(duration: 0.15), value: locked)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Drawing mode")
+    }
+
+    private func modeSegment(_ title: String, _ mode: EditorMode, vertical: Bool) -> some View {
+        let selected = model.mode == mode
+        return Button { model.mode = mode } label: {
+            Text(title)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(selected ? Color.white : Color.primary)
+                .frame(width: vertical ? Self.slot : Self.pillSegmentWidth, height: vertical ? Self.pillSegmentHeightVertical : Self.slot)
+                .background(selected ? Color.accentColor : .clear, in: Capsule())
+                .contentShape(Capsule())
+                .animation(.easeOut(duration: 0.15), value: selected)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title) mode")
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private var toolRow: some View {
         VStack(spacing: 0) {
             switch ToolRowLayout.layout(forWidth: toolRowWidth) {
-            case .oneRow:
+            case .oneRow, .oneRowWithPill:
                 HStack(spacing: 0) {
                     HStack(spacing: 0) {
+                        if ToolRowLayout.layout(forWidth: toolRowWidth) == .oneRowWithPill {
+                            modePicker
+                            divider
+                        }
                         toolsGroup
                         divider
                         colorsGroup
@@ -449,12 +494,16 @@ private extension DrawTool {
 }
 
 enum ToolRowLayout {
-    case oneRow, twoRows
+    case oneRowWithPill, oneRow, twoRows
 
     static let oneRowWidth: CGFloat = 13 * EditorView.slot + 2 * EditorView.groupGap + EditorView.statusWidth + 2 * EditorView.inset
+    static let oneRowWithPillWidth: CGFloat = oneRowWidth + EditorView.pillWidth + EditorView.groupGap
 
     static func layout(forWidth width: CGFloat) -> ToolRowLayout {
-        width >= oneRowWidth ? .oneRow : .twoRows
+        if width >= oneRowWithPillWidth {
+            return .oneRowWithPill
+        }
+        return width >= oneRowWidth ? .oneRow : .twoRows
     }
 }
 
@@ -490,6 +539,41 @@ private struct VerticalBarReader<Content: View>: View {
     var body: some View {
         content(edge != nil)
     }
+}
+
+enum EditorBarItem: CaseIterable {
+    case settings, history, mode, mic, replay, crop, window, undo, redo, new
+
+    static func items(for _: EditorBarState) -> [EditorBarItem] {
+        allCases
+    }
+
+    func isEnabled(_ state: EditorBarState) -> Bool {
+        switch self {
+        case .mic: state.mode == .note && !state.startingRecording && !state.transcribing
+        case .replay: state.replayAvailable
+        case .crop: state.hasImage && !state.selecting
+        case .window: state.hasImage && state.hasWindows && !state.selecting
+        case .undo: state.canUndo
+        case .redo: state.canRedo
+        case .mode: !(state.recording || state.startingRecording || state.transcribing)
+        case .settings, .history, .new: true
+        }
+    }
+}
+
+struct EditorBarState {
+    var mode: EditorMode = .draw
+    var recording = false
+    var startingRecording = false
+    var transcribing = false
+    var voiceLoading = false
+    var selecting = false
+    var hasImage = true
+    var hasWindows = true
+    var canUndo = false
+    var canRedo = false
+    var replayAvailable = false
 }
 
 enum BarVisibility {

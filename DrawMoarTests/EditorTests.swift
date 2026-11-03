@@ -8,10 +8,39 @@ import XCTest
 @MainActor final class EditorTests: XCTestCase {
     func testToolRowLayoutByWidth() {
         XCTAssertEqual(ToolRowLayout.oneRowWidth, 692)
-        let table: [(CGFloat, ToolRowLayout)] = [(320, .twoRows), (466, .twoRows), (691, .twoRows), (692, .oneRow), (700, .oneRow), (1100, .oneRow), (1400, .oneRow)]
+        XCTAssertEqual(ToolRowLayout.oneRowWithPillWidth, 858)
+        let table: [(CGFloat, ToolRowLayout)] = [(320, .twoRows), (466, .twoRows), (691, .twoRows), (692, .oneRow), (700, .oneRow), (857, .oneRow), (858, .oneRowWithPill), (1100, .oneRowWithPill), (1400, .oneRowWithPill)]
         for (width, expected) in table {
             XCTAssertEqual(ToolRowLayout.layout(forWidth: width), expected, "width \(width)")
         }
+    }
+
+    func testToolbarItemsAreIdenticalInEveryState() {
+        let expected: [EditorBarItem] = [.settings, .history, .mode, .mic, .replay, .crop, .window, .undo, .redo, .new]
+        var count = 0
+        for mode in [EditorMode.draw, .note] {
+            for phase in 0 ..< 3 {
+                for selecting in [false, true] {
+                    for canRedo in [false, true] {
+                        for replayAvailable in [false, true] {
+                            let state = EditorBarState(mode: mode, recording: phase == 1, transcribing: phase == 2, selecting: selecting, canRedo: canRedo, replayAvailable: replayAvailable)
+                            XCTAssertEqual(EditorBarItem.items(for: state), expected, "\(state)")
+                            count += 1
+                        }
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(count, 48)
+        XCTAssertFalse(EditorBarItem.mic.isEnabled(EditorBarState(mode: .draw)))
+        XCTAssertTrue(EditorBarItem.mic.isEnabled(EditorBarState(mode: .note, recording: true)))
+        XCTAssertFalse(EditorBarItem.redo.isEnabled(EditorBarState()))
+        XCTAssertFalse(EditorBarItem.replay.isEnabled(EditorBarState()))
+    }
+
+    func testTranscriptRowShowsOnlyTimeAndPhrase() {
+        let phrase = NotePhrase(start: 65, end: 70, text: "look here", marks: [1, 2, 3])
+        XCTAssertEqual(TranscriptRow.visibleTexts(phrase), [ReplayTimeline.clock(65), "look here"])
     }
 
     func testStorageSizeAndDeleteAllAfterPendingEdit() async throws {
