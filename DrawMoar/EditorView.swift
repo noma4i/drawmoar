@@ -14,6 +14,7 @@ struct EditorView: View {
     @State private var showHistory = false
     @State private var canvas = PKCanvasView()
     @State private var settingsChanged = false
+    @State private var replay: ReplaySource?
 
     var body: some View {
         HStack(spacing: 0) {
@@ -44,6 +45,7 @@ struct EditorView: View {
         .sheet(isPresented: Binding(get: { showHistory && sizeClass != .regular }, set: { showHistory = $0 })) {
             NavigationStack { historyList.navigationTitle("History").toolbar { Button("Done") { showHistory = false } } }
         }
+        .fullScreenCover(item: $replay) { ReplayView(source: $0) }
         .alert("Parakeet Ultra is not installed", isPresented: $model.showVoiceSettings) {
             Button("Settings") { flow.showSettings = true }
             Button("Cancel", role: .cancel) {}
@@ -90,8 +92,39 @@ struct EditorView: View {
                     }
                 }
                 .swipeActions { Button("Delete", role: .destructive) { Task { await model.deleteHistory(entry) } } }
+                .swipeActions(edge: .leading) {
+                    if entry.hasTimeline {
+                        Button("Replay", systemImage: "play.circle") { openReplay(entry) }.tint(.accentColor)
+                    }
+                }
+                .contextMenu {
+                    if entry.hasTimeline {
+                        Button("Replay", systemImage: "play.circle") { openReplay(entry) }
+                    }
+                }
             }
         }
+    }
+
+    @ViewBuilder private func transcriptOverlay(image: UIImage) -> some View {
+        if model.mode == .note, !model.sessionPhrases.isEmpty {
+            GeometryReader { proxy in
+                let visible = model.crop ?? CGRect(x: 0, y: 0, width: image.cgImage?.width ?? 1, height: image.cgImage?.height ?? 1)
+                let fitted = visible.height * min(proxy.size.width / max(visible.width, 1), proxy.size.height / max(visible.height, 1))
+                let free = (proxy.size.height - fitted) / 2
+                TranscriptOverlay(phrases: model.sessionPhrases, height: free >= 40 ? min(free - 4, 88) : 52) {
+                    if model.replayAvailable {
+                        Task { replay = await model.replaySourceForCurrent() }
+                    }
+                }
+                .frame(maxHeight: .infinity, alignment: .bottom)
+            }
+        }
+    }
+
+    private func openReplay(_ entry: HistoryEntry) {
+        showHistory = false
+        Task { replay = await model.replaySource(for: entry) }
     }
 
     private var editor: some View {
@@ -108,6 +141,7 @@ struct EditorView: View {
                         selectingWindow = false
                     }
                 }, canvas: canvas, tool: EditorModel.pkTool(model.tool, color: model.inkColor, width: model.lineWidth, scale: EditorModel.canvasScale(for: CGSize(width: image.cgImage?.width ?? 1, height: image.cgImage?.height ?? 1))), setUsingTool: model.setUsingTool)
+                    .overlay(alignment: .bottom) { transcriptOverlay(image: image) }
             } else {
                 Spacer()
                 if model.busy {
@@ -127,16 +161,24 @@ struct EditorView: View {
                 .accessibilityLabel("Settings")
             Button("History", systemImage: "sidebar.left") { showHistory.toggle() }
                 .labelStyle(.iconOnly)
+            Button("Replay", systemImage: "play.circle") { Task { replay = await model.replaySourceForCurrent() } }
+                .labelStyle(.iconOnly)
+                .frame(width: 26, height: 32)
+                .opacity(model.replayAvailable ? 1 : 0)
+                .disabled(!model.replayAvailable)
+                .accessibilityHidden(!model.replayAvailable)
             Picker("Drawing mode", selection: $model.mode) {
                 Text("Draw").tag(EditorMode.draw)
                 Text("Note").tag(EditorMode.note)
             }
             .pickerStyle(.segmented)
+            .frame(width: 108)
             .accessibilityLabel("Drawing mode")
             .disabled(model.recording || model.startingRecording || model.transcribing)
-            if model.mode == .note {
+            ZStack {
                 if model.transcribing {
-                    ProgressView(model.voice.loading ? "Loading model" : "Transcribing")
+                    ProgressView()
+                        .accessibilityLabel(model.voice.loading ? "Loading model" : "Transcribing")
                 } else {
                     Button(model.recording ? "Stop recording" : "Record voice", systemImage: model.recording ? "stop.circle" : "mic") { Task { await model.toggleRecording() } }
                         .labelStyle(.iconOnly)
@@ -144,6 +186,13 @@ struct EditorView: View {
                         .foregroundStyle(model.recording ? Color.red : Color.primary)
                 }
             }
+            .frame(width: 30, height: 32)
+            .opacity(model.mode == .note ? 1 : 0)
+            .disabled(model.mode != .note)
+            .accessibilityHidden(model.mode != .note)
+            .animation(.easeOut(duration: 0.15), value: model.recording)
+            .animation(.easeOut(duration: 0.15), value: model.transcribing)
+            .animation(.easeOut(duration: 0.15), value: model.mode)
             Spacer(minLength: 16)
             if cropping || selectingWindow {
                 Button("Cancel") { cropping = false; selectingWindow = false; cropDraft = nil }
@@ -168,6 +217,8 @@ struct EditorView: View {
                     cropDraft = nil
                     selectingWindow = true
                 }
+                .labelStyle(.iconOnly)
+                .accessibilityLabel("Window")
                 .disabled(model.image == nil || model.windows.isEmpty)
                 divider
                 Button("Undo") {
@@ -245,6 +296,7 @@ struct EditorView: View {
             }
         }
         .font(.caption)
+        .frame(minHeight: 20)
         .padding(.horizontal, 8)
     }
 }

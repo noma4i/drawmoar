@@ -104,6 +104,7 @@ enum EditorMode: String {
     private(set) var imported = false
     private(set) var history: [HistoryEntry] = []
     private let storage: CaptureHistory
+    private let capturesDirectory: URL
     private(set) var storageSize: Int64 = 0
     var retention: Retention {
         didSet { defaults.set(retention.rawValue, forKey: "captureRetention") }
@@ -178,6 +179,7 @@ enum EditorMode: String {
         self.deadline = deadline
         let directory = historyDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Captures", isDirectory: true)
         storage = CaptureHistory(directory: directory)
+        capturesDirectory = directory
         self.client = client
         self.pairing = pairing
         self.defaults = defaults
@@ -561,6 +563,35 @@ enum EditorMode: String {
             readyRevision = revision
             await sendIfReady()
         } catch { self.error = error.localizedDescription }
+    }
+
+    var sessionPhrases: [NotePhrase] {
+        voiceSession?.phrases ?? []
+    }
+
+    var replayAvailable: Bool {
+        history.first { $0.id == session }?.hasTimeline == true
+    }
+
+    func replaySource(for entry: HistoryEntry) async -> ReplaySource? {
+        let storage = storage
+        let directory = capturesDirectory
+        do {
+            let capture = try await Task.detached(priority: .userInitiated) { try storage.loadCapture(entry) }.value
+            guard let timeline = capture.timeline else { return nil }
+            return ReplaySource(id: capture.id, image: capture.image, drawing: capture.drawing, crop: capture.crop, timeline: timeline, directory: directory)
+        } catch {
+            self.error = error.localizedDescription
+            return nil
+        }
+    }
+
+    func replaySourceForCurrent() async -> ReplaySource? {
+        if let current = currentEntry() {
+            queueSave(current)
+        }
+        guard await flushHistory(), let entry = history.first(where: { $0.id == session && $0.hasTimeline }) else { return nil }
+        return await replaySource(for: entry)
     }
 
     func deleteHistory(_ entry: HistoryEntry) async {
