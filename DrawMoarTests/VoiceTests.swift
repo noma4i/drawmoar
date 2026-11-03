@@ -262,82 +262,6 @@ extension VoiceTests {
         XCTAssertEqual(loads, 1)
     }
 
-    @MainActor func testGpuServesUntilAneSwaps() async throws {
-        let ane = Gate()
-        let gpu = Gate()
-        weak var gpuToken: Token?
-        let voice = VoiceModel(loader: {
-            await ane.wait()
-            return { _ in [.init(text: "ane", start: 0, end: 1)] }
-        }, gpuLoader: {
-            await gpu.wait()
-            let token = Token()
-            gpuToken = token
-            return { _ in _ = token
-                return [.init(text: "gpu", start: 0, end: 1)]
-            }
-        }, gpuGrace: .milliseconds(10), installedProbe: { true })
-        let preparing = Task { await voice.prepare() }
-        try await Task.sleep(for: .milliseconds(100))
-        XCTAssertFalse(voice.ready)
-        gpu.open()
-        await preparing.value
-        XCTAssertTrue(voice.ready)
-        let first = try await voice.transcribe([])
-        XCTAssertEqual(first.first?.text, "gpu")
-        XCTAssertNotNil(gpuToken)
-        ane.open()
-        for _ in 0 ..< 200 {
-            if try await voice.transcribe([]).first?.text == "ane" {
-                break
-            }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        let second = try await voice.transcribe([])
-        XCTAssertEqual(second.first?.text, "ane")
-        XCTAssertNil(gpuToken)
-    }
-
-    @MainActor func testAneInsideGraceSkipsGpu() async throws {
-        var gpuCalls = 0
-        let voice = VoiceModel(loader: {
-            try await Task.sleep(for: .milliseconds(20))
-            return { _ in [.init(text: "ane", start: 0, end: 1)] }
-        }, gpuLoader: {
-            gpuCalls += 1
-            return { _ in [] }
-        }, gpuGrace: .milliseconds(300), installedProbe: { true })
-        await voice.prepare()
-        try await Task.sleep(for: .milliseconds(500))
-        XCTAssertEqual(gpuCalls, 0)
-        let words = try await voice.transcribe([])
-        XCTAssertEqual(words.first?.text, "ane")
-    }
-
-    @MainActor func testTranscriptionInFlightKeepsItsTranscriber() async throws {
-        let ane = Gate()
-        let release = Gate()
-        let voice = VoiceModel(loader: {
-            await ane.wait()
-            return { _ in [.init(text: "ane", start: 0, end: 1)] }
-        }, gpuLoader: {
-            { _ in
-                await release.wait()
-                return [.init(text: "gpu", start: 0, end: 1)]
-            }
-        }, gpuGrace: .milliseconds(10), installedProbe: { true })
-        await voice.prepare()
-        let inFlight = Task { try await voice.transcribe([]) }
-        try await Task.sleep(for: .milliseconds(50))
-        ane.open()
-        try await Task.sleep(for: .milliseconds(150))
-        release.open()
-        let words = try await inFlight.value
-        XCTAssertEqual(words.first?.text, "gpu")
-        let next = try await voice.transcribe([])
-        XCTAssertEqual(next.first?.text, "ane")
-    }
-
     @MainActor func testTranscriptionDeadline() async throws {
         let model = try makeModel(VoiceClient(), deadline: .milliseconds(50)) { _ in
             try await Task.sleep(for: .seconds(1000))
@@ -349,25 +273,6 @@ extension VoiceTests {
         XCTAssertEqual(model.error, "Transcription timed out")
         XCTAssertFalse(model.transcribing)
         XCTAssertFalse(model.recording)
-    }
-}
-
-private final class Token {}
-
-@MainActor private final class Gate {
-    private var opened = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-    func wait() async {
-        if opened {
-            return
-        }
-        await withCheckedContinuation { waiters.append($0) }
-    }
-
-    func open() {
-        opened = true
-        waiters.forEach { $0.resume() }
-        waiters = []
     }
 }
 

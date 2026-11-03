@@ -43,27 +43,15 @@ private let voiceLog = Logger(subsystem: "com.noma4i.DrawMoar", category: "voice
     var error: String?
     private var transcriber: Transcriber?
     private var loadTask: Task<Void, Error>?
-    private var aneTask: Task<Void, Never>?
-    private var gpuTask: Task<Void, Never>?
-    private var readyContinuation: CheckedContinuation<Void, Error>?
-    private var generation = 0
     private var downloadTask: Task<Void, Never>?
     private let directory = AsrModels.defaultCacheDirectory(for: .ultra)
     private let loader: () async throws -> Transcriber
-    private let gpuLoader: (() async throws -> Transcriber)?
-    private let gpuGrace: Duration
     private let installedProbe: (() -> Bool)?
 
-    init(loader: @escaping () async throws -> Transcriber = VoiceModel.loadInstalled, gpuLoader: (() async throws -> Transcriber)? = nil, gpuGrace: Duration = .seconds(1), installedProbe: (() -> Bool)? = nil) {
+    init(loader: @escaping () async throws -> Transcriber = VoiceModel.loadInstalled, installedProbe: (() -> Bool)? = nil) {
         self.loader = loader
-        self.gpuLoader = gpuLoader
-        self.gpuGrace = gpuGrace
         self.installedProbe = installedProbe
         refresh()
-    }
-
-    convenience init() {
-        self.init(gpuLoader: VoiceModel.loadInstalledGPU)
     }
 
     var ready: Bool {
@@ -89,71 +77,18 @@ private let voiceLog = Logger(subsystem: "com.noma4i.DrawMoar", category: "voice
             task = loadTask
         } else {
             loading = true
-            generation += 1
-            let current = generation
             task = Task {
-                try await withCheckedThrowingContinuation { continuation in
-                    readyContinuation = continuation
-                    startLoaders(current)
+                defer {
+                    loading = false
+                    loadTask = nil
                 }
+                let loaded = try await loader()
+                try Task.checkCancellation()
+                transcriber = loaded
             }
             loadTask = task
         }
         try await task.value
-    }
-
-    private func startLoaders(_ current: Int) {
-        let clock = ContinuousClock()
-        let start = clock.now
-        var pending = gpuLoader == nil ? 1 : 2
-        func failed(_ error: Error) {
-            guard current == generation else { return }
-            pending -= 1
-            if pending == 0, transcriber == nil {
-                finishLoading(error)
-            }
-        }
-        aneTask = Task {
-            do {
-                let loaded = try await loader()
-                guard current == generation else { return }
-                voiceLog.info("ane ready \(start.duration(to: clock.now).description, privacy: .public)")
-                gpuTask?.cancel()
-                gpuTask = nil
-                if transcriber != nil {
-                    voiceLog.info("swap to ane")
-                }
-                transcriber = loaded
-                aneTask = nil
-                finishLoading(nil)
-            } catch { failed(error) }
-        }
-        guard let gpuLoader else { return }
-        gpuTask = Task {
-            do {
-                try await Task.sleep(for: gpuGrace)
-                let loaded = try await gpuLoader()
-                try Task.checkCancellation()
-                guard current == generation, transcriber == nil else { return }
-                voiceLog.info("gpu ready \(start.duration(to: clock.now).description, privacy: .public)")
-                transcriber = loaded
-                gpuTask = nil
-                finishLoading(nil)
-            } catch is CancellationError {
-            } catch { failed(error) }
-        }
-    }
-
-    private func finishLoading(_ error: Error?) {
-        loading = false
-        loadTask = nil
-        let continuation = readyContinuation
-        readyContinuation = nil
-        if let error {
-            continuation?.resume(throwing: error)
-        } else {
-            continuation?.resume()
-        }
     }
 
     func download() {
@@ -199,15 +134,8 @@ private let voiceLog = Logger(subsystem: "com.noma4i.DrawMoar", category: "voice
 
     func delete() {
         do {
-            generation += 1
-            aneTask?.cancel()
-            gpuTask?.cancel()
-            aneTask = nil
-            gpuTask = nil
+            loadTask?.cancel()
             transcriber = nil
-            if loadTask != nil {
-                finishLoading(CancellationError())
-            }
             try FileManager.default.removeItem(at: directory)
             refresh()
         } catch { self.error = error.localizedDescription }
@@ -224,11 +152,6 @@ private let voiceLog = Logger(subsystem: "com.noma4i.DrawMoar", category: "voice
         let start = clock.now
         let models = try await AsrModels.downloadAndLoad(version: .ultra)
         voiceLog.info("model load \(start.duration(to: clock.now).description, privacy: .public)")
-        return await makeTranscriber(models)
-    }
-
-    nonisolated static func loadInstalledGPU() async throws -> Transcriber {
-        let models = try await AsrModels.loadFromCache(version: .ultra, encoderComputeUnits: .cpuAndGPU)
         return await makeTranscriber(models)
     }
 
