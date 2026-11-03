@@ -46,7 +46,7 @@ struct EditorView: View {
             NavigationStack { historyList.navigationTitle("History").toolbar { Button("Done") { showHistory = false } } }
         }
         .fullScreenCover(item: $replay) { ReplayView(source: $0) }
-        .alert("Parakeet Ultra is not installed", isPresented: $model.showVoiceSettings) {
+        .alert("\(model.voice.engine.title) is not installed", isPresented: $model.showVoiceSettings) {
             Button("Settings") { flow.showSettings = true }
             Button("Cancel", role: .cancel) {}
         } message: { Text("Download it in Settings > Voice.") }

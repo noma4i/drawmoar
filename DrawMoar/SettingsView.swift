@@ -10,21 +10,46 @@ struct SettingsView: View {
     @State private var pairing = false
     @State private var confirmDelete = false
 
+    private var voiceStatus: String {
+        guard model.voice.installed else { return "Not downloaded" }
+        if model.voice.loading {
+            return "Preparing..."
+        }
+        return model.voice.engine == .apple ? "Installed" : ByteCountFormatter.string(fromByteCount: model.voice.size, countStyle: .file)
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 Section("Voice") {
-                    LabeledContent("Parakeet Ultra", value: model.voice.installed ? (model.voice.loading ? "Preparing..." : ByteCountFormatter.string(fromByteCount: model.voice.size, countStyle: .file)) : "Not downloaded")
+                    Picker("Engine", selection: Binding(get: { model.voice.engine }, set: { value in
+                        model.voice.select(value)
+                        Task { await model.voice.prepare() }
+                    })) {
+                        ForEach(VoiceEngine.allCases) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    if model.voice.engine == .apple {
+                        Picker("Language", selection: Binding(get: { model.voice.language }, set: { value in
+                            model.voice.setLanguage(value)
+                            Task { await model.voice.prepare() }
+                        })) {
+                            ForEach(model.voice.appleLanguages, id: \.self) { Text(Locale.current.localizedString(forIdentifier: $0) ?? $0).tag($0) }
+                        }
+                    }
+                    LabeledContent(model.voice.engine.title, value: voiceStatus)
                     if let progress = model.voice.progress {
-                        let text = DownloadText(fraction: progress.fractionCompleted, phase: progress.phase, downloaded: model.voice.size, total: nil)
-                        ProgressView(value: progress.fractionCompleted) {
+                        let text = DownloadText(fraction: progress.fraction, phaseText: progress.phase, downloaded: model.voice.size, total: nil)
+                        ProgressView(value: progress.fraction) {
                             Text("\(text.phase) - \(text.percent)")
                         } currentValueLabel: {
-                            Text(text.bytes)
+                            Text(model.voice.engine == .apple ? "" : text.bytes)
                         }
                         Button("Cancel") { model.voice.cancel() }
                     } else if model.voice.installed {
-                        Button("Delete", role: .destructive) { model.voice.delete() }
+                        if model.voice.engine != .apple {
+                            Button("Delete", role: .destructive) { model.voice.delete() }
+                        }
                     } else {
                         Button("Download") { model.voice.download() }
                     }
@@ -102,6 +127,7 @@ struct SettingsView: View {
             }
         }
         .task {
+            await model.voice.refreshApple()
             model.updateStorageSize()
             await model.loadDisplays()
             if model.pairing == nil {

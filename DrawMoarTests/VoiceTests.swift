@@ -245,6 +245,53 @@ extension VoiceTests {
         XCTAssertNil(try storage.loadCapture(entry).timeline)
     }
 
+    @MainActor func testEngineDefaultAndPersistence() throws {
+        func suite() throws -> UserDefaults {
+            try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        }
+        let device = Locale.preferredLanguages
+        let supported = try [AppleSpeechEngine.identifier(Locale(identifier: XCTUnwrap(device.first))), "xx-XX"]
+        try XCTAssertEqual(VoiceModel(defaults: suite(), appleSupported: supported).engine, .apple)
+        try XCTAssertEqual(VoiceModel(defaults: suite(), appleSupported: ["xx-XX"]).engine, .parakeet)
+        let defaults = try suite()
+        let model = VoiceModel(defaults: defaults, appleSupported: supported)
+        model.select(.whisper)
+        XCTAssertEqual(VoiceModel(defaults: defaults, appleSupported: supported).engine, .whisper)
+        model.select(.parakeet)
+        XCTAssertEqual(VoiceModel(defaults: defaults, appleSupported: ["xx-XX"]).engine, .parakeet)
+        XCTAssertEqual(AppleSpeechEngine.language(supported: ["en-US", "ru-RU"], preferred: ["ru-RU", "en-US"]), "ru-RU")
+        XCTAssertEqual(AppleSpeechEngine.language(supported: ["en-US", "ru-RU"], preferred: ["ru"]), "ru-RU")
+        XCTAssertNil(AppleSpeechEngine.language(supported: ["en-US"], preferred: ["ru-RU"]))
+    }
+
+    @MainActor func testSwitchingEnginePicksOnlySelectedLoader() async throws {
+        var calls: [String] = []
+        let model = try VoiceModel(
+            defaults: XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)),
+            loader: { calls.append("parakeet"); return { _ in [.init(text: "parakeet", start: 0, end: 1)] } },
+            installedProbe: { true },
+            appleLoader: { _ in calls.append("apple"); return { _ in [.init(text: "apple", start: 0, end: 1)] } },
+            appleSupported: ["en-US"], appleInstalled: ["en-US"],
+            whisperLoader: { calls.append("whisper"); return { _ in [.init(text: "whisper", start: 0, end: 1)] } },
+            whisperProbe: { true }
+        )
+        for engine in [VoiceEngine.whisper, .apple, .parakeet] {
+            model.select(engine)
+            let words = try await model.transcribe([0])
+            XCTAssertEqual(words.first?.text, engine.rawValue)
+            XCTAssertEqual(calls.last, engine.rawValue)
+        }
+        XCTAssertEqual(calls, ["whisper", "apple", "parakeet"])
+    }
+
+    func testRunsToWords() {
+        let runs = [AppleSpeechEngine.Run(text: "Hello ", start: 0.5, end: 0.9), .init(text: " ", start: 0.9, end: 1.0), .init(text: "world", start: 1.0, end: 1.4)]
+        let words = AppleSpeechEngine.words(from: runs)
+        XCTAssertEqual(words.map(\.text), ["Hello", "world"])
+        XCTAssertEqual(words.map(\.start), [0.5, 1.0])
+        XCTAssertEqual(words.map(\.end), [0.9, 1.4])
+    }
+
     @MainActor func testPrepareLoadsOnce() async {
         var loads = 0
         let voice = VoiceModel(loader: {

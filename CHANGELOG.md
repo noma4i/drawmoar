@@ -6,6 +6,7 @@
 
 - Voice notes with on-device Parakeet Ultra transcription, numbered marks, and dictation.
 - Download progress for the voice model.
+- Voice engine choice in Settings: Apple Speech, Parakeet Ultra, or Whisper Small (quantized 216 MB). DrawMoar now requires iOS 26.
 - Every voice recording is stored on the phone as AAC with a timeline of the session, so a past session keeps its audio, words, and stroke timing. Selecting a history entry continues its voice session. Audio is never sent to the Mac.
 - Replay of a past voice session: strokes are drawn again in time with the audio, marks appear when they were made, and the transcript shows time pills you can tap to seek. Pauses longer than 3 seconds are shortened to 1 second. Open it from History (swipe or long-press) or the editor toolbar.
 - Built-in drawing tools: pen, marker, eraser, six colors, shown as icons.

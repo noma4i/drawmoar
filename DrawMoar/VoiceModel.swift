@@ -3,20 +3,58 @@ import Foundation
 import Observation
 import os
 
+struct VoiceProgress: Equatable {
+    var fraction: Double
+    var phase: String
+
+    init(fraction: Double, phase: String) {
+        self.fraction = fraction
+        self.phase = phase
+    }
+
+    init(_ value: DownloadProgress) {
+        self.init(fraction: value.fractionCompleted, phase: DownloadText.phaseText(value.phase))
+    }
+}
+
 struct DownloadText {
     let percent: String
     let phase: String
     let bytes: String
 
     init(fraction: Double, phase: DownloadPhase, downloaded: Int64, total: Int64?) {
+        self.init(fraction: fraction, phaseText: Self.phaseText(phase), downloaded: downloaded, total: total)
+    }
+
+    init(fraction: Double, phaseText: String, downloaded: Int64, total: Int64?) {
         percent = "\(Int((fraction * 100).rounded()))%"
-        switch phase {
-        case .listing: self.phase = "Listing files"
-        case let .downloading(completedFiles, totalFiles): self.phase = "File \(min(completedFiles + 1, totalFiles)) of \(totalFiles)"
-        case .compiling: self.phase = "Compiling"
-        }
+        phase = phaseText
         let downloadedText = ByteCountFormatter.string(fromByteCount: downloaded, countStyle: .file)
         bytes = total.map { "\(downloadedText) of \(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file))" } ?? downloadedText
+    }
+
+    static func phaseText(_ phase: DownloadPhase) -> String {
+        switch phase {
+        case .listing: "Listing files"
+        case let .downloading(completedFiles, totalFiles): "File \(min(completedFiles + 1, totalFiles)) of \(totalFiles)"
+        case .compiling: "Compiling"
+        }
+    }
+}
+
+enum VoiceEngine: String, CaseIterable, Identifiable {
+    case apple, parakeet, whisper
+
+    var id: String {
+        rawValue
+    }
+
+    var title: String {
+        switch self {
+        case .apple: "Apple Speech"
+        case .parakeet: "Parakeet Ultra"
+        case .whisper: "Whisper Small"
+        }
     }
 }
 
@@ -26,7 +64,7 @@ enum VoiceError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .timedOut: "Transcription timed out"
-        case .notInstalled: "Parakeet Ultra is not installed"
+        case .notInstalled: "The voice model is not installed"
         }
     }
 }
@@ -36,37 +74,129 @@ typealias Transcriber = ([Float]) async throws -> [NoteBuilder.Word]
 private let voiceLog = Logger(subsystem: "com.noma4i.DrawMoar", category: "voice")
 
 @MainActor @Observable final class VoiceModel {
-    private(set) var installed = false
+    private(set) var engine: VoiceEngine
+    private(set) var language = ""
+    private(set) var appleLanguages: [String] = []
+    private(set) var installedEngines: Set<VoiceEngine> = []
     private(set) var size: Int64 = 0
-    private(set) var progress: DownloadProgress?
+    private(set) var progress: VoiceProgress?
     private(set) var loading = false
     var error: String?
     private var transcriber: Transcriber?
     private var loadTask: Task<Void, Error>?
     private var downloadTask: Task<Void, Never>?
+    private var generation = 0
+    private var appleInstalledIDs: Set<String> = []
+    private var appleReady = false
+    private let defaults: UserDefaults
     private let directory = AsrModels.defaultCacheDirectory(for: .ultra)
-    private let loader: () async throws -> Transcriber
-    private let installedProbe: (() -> Bool)?
+    private let parakeetLoader: () async throws -> Transcriber
+    private let parakeetProbe: (() -> Bool)?
+    private let appleLoader: (String) async throws -> Transcriber
+    private let whisperLoader: () async throws -> Transcriber
+    private let whisperProbe: (() -> Bool)?
 
-    init(loader: @escaping () async throws -> Transcriber = VoiceModel.loadInstalled, installedProbe: (() -> Bool)? = nil) {
-        self.loader = loader
-        self.installedProbe = installedProbe
+    init(defaults: UserDefaults = .standard, loader: @escaping () async throws -> Transcriber = VoiceModel.loadInstalled, installedProbe: (() -> Bool)? = nil, appleLoader: @escaping (String) async throws -> Transcriber = AppleSpeechEngine.load, appleSupported: [String]? = nil, appleInstalled: Set<String> = [], whisperLoader: @escaping () async throws -> Transcriber = WhisperEngine.load, whisperProbe: (() -> Bool)? = nil) {
+        self.defaults = defaults
+        parakeetLoader = loader
+        parakeetProbe = installedProbe
+        self.appleLoader = appleLoader
+        self.whisperLoader = whisperLoader
+        self.whisperProbe = whisperProbe
+        engine = defaults.string(forKey: Self.engineKey).flatMap(VoiceEngine.init) ?? .parakeet
+        appleInstalledIDs = appleInstalled
+        if let appleSupported {
+            applyApple(supported: appleSupported)
+        }
         refresh()
+    }
+
+    private static let engineKey = "voiceEngine"
+    private static let languageKey = "voiceLanguage"
+
+    var installed: Bool {
+        installedEngines.contains(engine)
     }
 
     var ready: Bool {
         transcriber != nil
     }
 
+    private func applyApple(supported: [String]) {
+        appleReady = true
+        appleLanguages = supported
+        let preferred = Locale.preferredLanguages
+        let match = AppleSpeechEngine.language(supported: supported, preferred: preferred)
+        let stored = defaults.string(forKey: Self.languageKey).flatMap { supported.contains($0) ? $0 : nil }
+        language = stored ?? match ?? (supported.contains("en-US") ? "en-US" : supported.first ?? "")
+        if defaults.string(forKey: Self.engineKey) == nil, match != nil {
+            engine = .apple
+        }
+    }
+
+    func refreshApple() async {
+        if !appleReady {
+            applyApple(supported: await AppleSpeechEngine.supportedIdentifiers())
+        }
+        appleInstalledIDs = await AppleSpeechEngine.installedIdentifiers()
+        refresh()
+    }
+
     func refresh() {
-        installed = installedProbe?() ?? AsrModels.modelsExist(at: directory, version: .ultra)
-        let files = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: [.fileSizeKey])
-        size = files?.allObjects.compactMap { $0 as? URL }.reduce(0) { total, url in
+        var found: Set<VoiceEngine> = []
+        if parakeetProbe?() ?? AsrModels.modelsExist(at: directory, version: .ultra) {
+            found.insert(.parakeet)
+        }
+        if whisperProbe?() ?? WhisperEngine.installed() {
+            found.insert(.whisper)
+        }
+        if appleInstalledIDs.contains(language) {
+            found.insert(.apple)
+        }
+        installedEngines = found
+        switch engine {
+        case .apple: size = 0
+        case .parakeet: size = Self.folderSize(directory)
+        case .whisper: size = Self.folderSize(WhisperEngine.directory)
+        }
+    }
+
+    private static func folderSize(_ url: URL) -> Int64 {
+        let files = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey])
+        return files?.allObjects.compactMap { $0 as? URL }.reduce(0) { total, url in
             total + Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
         } ?? 0
     }
 
+    private func release() {
+        generation += 1
+        loadTask?.cancel()
+        loadTask = nil
+        downloadTask?.cancel()
+        transcriber = nil
+        loading = false
+        progress = nil
+        error = nil
+    }
+
+    func select(_ newEngine: VoiceEngine) {
+        guard newEngine != engine else { return }
+        release()
+        engine = newEngine
+        defaults.set(newEngine.rawValue, forKey: Self.engineKey)
+        refresh()
+    }
+
+    func setLanguage(_ identifier: String) {
+        guard identifier != language else { return }
+        release()
+        language = identifier
+        defaults.set(identifier, forKey: Self.languageKey)
+        refresh()
+    }
+
     func prepare() async {
+        await refreshApple()
         do { try await load() } catch { self.error = error.localizedDescription }
     }
 
@@ -77,13 +207,23 @@ private let voiceLog = Logger(subsystem: "com.noma4i.DrawMoar", category: "voice
             task = loadTask
         } else {
             loading = true
+            let token = generation
+            let engine = engine
+            let language = language
             task = Task {
                 defer {
-                    loading = false
-                    loadTask = nil
+                    if token == generation {
+                        loading = false
+                        loadTask = nil
+                    }
                 }
-                let loaded = try await loader()
+                let loaded: Transcriber = switch engine {
+                case .apple: try await appleLoader(language)
+                case .parakeet: try await parakeetLoader()
+                case .whisper: try await whisperLoader()
+                }
                 try Task.checkCancellation()
+                guard token == generation else { return }
                 transcriber = loaded
             }
             loadTask = task
@@ -91,9 +231,18 @@ private let voiceLog = Logger(subsystem: "com.noma4i.DrawMoar", category: "voice
         try await task.value
     }
 
+    private func setProgress(_ value: VoiceProgress, token: Int) {
+        if token == generation, downloadTask != nil {
+            progress = value
+        }
+    }
+
     func download() {
         guard downloadTask == nil else { return }
-        progress = DownloadProgress(fractionCompleted: 0, phase: .listing)
+        let token = generation
+        let engine = engine
+        let language = language
+        progress = VoiceProgress(fraction: 0, phase: engine == .parakeet ? "Listing files" : "Downloading")
         downloadTask = Task {
             let refreshTask = Task {
                 while !Task.isCancelled {
@@ -102,28 +251,49 @@ private let voiceLog = Logger(subsystem: "com.noma4i.DrawMoar", category: "voice
                 }
             }
             do {
-                let models = try await AsrModels.downloadAndLoad(version: .ultra) { value in
-                    Task { @MainActor in
-                        if self.downloadTask != nil {
-                            self.progress = value
-                        }
+                let finish: () async throws -> Transcriber
+                switch engine {
+                case .parakeet:
+                    let models = try await AsrModels.downloadAndLoad(version: .ultra) { value in
+                        Task { @MainActor in self.setProgress(VoiceProgress(value), token: token) }
                     }
+                    finish = { await Self.makeTranscriber(models) }
+                case .whisper:
+                    try await WhisperEngine.download { value in
+                        Task { @MainActor in self.setProgress(VoiceProgress(fraction: value, phase: "Downloading"), token: token) }
+                    }
+                    finish = whisperLoader
+                case .apple:
+                    try await AppleSpeechEngine.download(language: language) { value in
+                        Task { @MainActor in self.setProgress(VoiceProgress(fraction: value, phase: "Downloading"), token: token) }
+                    }
+                    finish = { [appleLoader] in try await appleLoader(language) }
                 }
                 try Task.checkCancellation()
                 refreshTask.cancel()
+                if engine == .apple {
+                    appleInstalledIDs = await AppleSpeechEngine.installedIdentifiers()
+                }
                 refresh()
                 progress = nil
                 loading = true
-                transcriber = await Self.makeTranscriber(models)
-                loading = false
-                error = nil
+                let loaded = try await finish()
+                if token == generation {
+                    transcriber = loaded
+                    error = nil
+                }
             } catch is CancellationError {
             } catch {
-                self.error = error.localizedDescription
+                if token == generation {
+                    self.error = error.localizedDescription
+                }
             }
             refreshTask.cancel()
+            if token == generation {
+                loading = false
+                progress = nil
+            }
             refresh()
-            progress = nil
             downloadTask = nil
         }
     }
@@ -134,9 +304,16 @@ private let voiceLog = Logger(subsystem: "com.noma4i.DrawMoar", category: "voice
 
     func delete() {
         do {
+            generation += 1
             loadTask?.cancel()
+            loadTask = nil
             transcriber = nil
-            try FileManager.default.removeItem(at: directory)
+            loading = false
+            switch engine {
+            case .apple: break
+            case .parakeet: try FileManager.default.removeItem(at: directory)
+            case .whisper: try FileManager.default.removeItem(at: WhisperEngine.directory)
+            }
             refresh()
         } catch { self.error = error.localizedDescription }
     }
