@@ -69,10 +69,29 @@ enum MacError: LocalizedError {
     }
 
     private func request(_ message: Message) async throws -> Message {
-        let (connection, endpoint) = try await browser.connect(name: pairing.macName, hosts: pairing.hosts ?? [], port: pairing.port, identity: pairing.deviceId, key: SymmetricKey(data: pairing.key))
-        let response = try await Self.request(message, connection: connection, pairing: pairing)
-        browser.recordResponse(from: endpoint, for: pairing.macName)
-        return response
+        var retried = false
+        while true {
+            let (connection, endpoint) = try await browser.connect(name: pairing.macName, hosts: pairing.hosts ?? [], port: pairing.port, identity: pairing.deviceId, key: SymmetricKey(data: pairing.key))
+            let watch = ConnectionWatch(connection.connection)
+            let stopObserving = browser.onPathChange { watch.drop() }
+            defer { stopObserving() }
+            do {
+                let response = try await Self.request(message, connection: connection, pairing: pairing)
+                browser.recordResponse(from: endpoint, for: pairing.macName)
+                return response
+            } catch {
+                guard !retried, watch.dropped || isDisconnect(error) else { throw error }
+                retried = true
+                browser.forgetRoute(for: pairing.macName)
+            }
+        }
+    }
+
+    private func isDisconnect(_ error: Error) -> Bool {
+        if case MacError.disconnected = error {
+            return true
+        }
+        return false
     }
 
     private nonisolated static func request(_ message: Message, connection: CompanionConnection, pairing: Pairing) async throws -> Message {
@@ -85,5 +104,29 @@ enum MacError: LocalizedError {
             throw MacError.remote(message)
         }
         return response
+    }
+}
+
+@MainActor private final class ConnectionWatch {
+    private let connection: NWConnection
+    private(set) var dropped = false
+
+    init(_ connection: NWConnection) {
+        self.connection = connection
+        connection.viabilityUpdateHandler = { [weak self] viable in
+            if !viable {
+                Task { @MainActor in self?.drop() }
+            }
+        }
+        connection.betterPathUpdateHandler = { [weak self] better in
+            if better {
+                Task { @MainActor in self?.drop() }
+            }
+        }
+    }
+
+    func drop() {
+        dropped = true
+        connection.cancel()
     }
 }
