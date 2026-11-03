@@ -87,13 +87,13 @@ final class VirtualClock: @unchecked Sendable {
         }
     }
 
-    func race(hosts: [String] = ["100.90.189.102"]) async -> (result: Result<NWEndpoint, Error>, elapsed: Duration) {
+    func race(hosts: [String] = ["100.90.189.102"], port: UInt16 = 47823) async -> (result: Result<NWEndpoint, Error>, elapsed: Duration) {
         let begin = clock.now
         var outcome: (Result<NWEndpoint, Error>, Duration)?
         let browser = browser
         let task = Task { @MainActor in
             do {
-                let route = try await browser.connect(name: "Mac", hosts: hosts, port: 47823) { [self] endpoint in
+                let route = try await browser.connect(name: "Mac", hosts: hosts, port: port) { [self] endpoint in
                     started.append(endpoint)
                     let step = script[endpoint] ?? (.seconds(60), true)
                     try await clock.sleep(step.delay)
@@ -122,6 +122,26 @@ final class VirtualClock: @unchecked Sendable {
         XCTAssertEqual(try result.get(), harness.tailscale)
         XCTAssertEqual(elapsed, .milliseconds(180))
         XCTAssertLessThan(elapsed, .seconds(6))
+    }
+
+    func testDefaultPortWinsWhenStoredPortIsDead() async throws {
+        let harness = try RouteHarness()
+        let stale = NWEndpoint.hostPort(host: "100.90.189.102", port: 59339)
+        harness.script = [harness.service: (.milliseconds(10), true), stale: (.milliseconds(10), true), harness.tailscale: (.milliseconds(60), false)]
+        let (result, _) = await harness.race(port: 59339)
+        XCTAssertEqual(try result.get(), harness.tailscale)
+        XCTAssertEqual(harness.started, [harness.service, stale, harness.tailscale])
+        harness.started = []
+        harness.script = [harness.service: (.milliseconds(10), true), stale: (.milliseconds(10), true), harness.tailscale: (.milliseconds(60), false)]
+        _ = await harness.race(port: 59339)
+        XCTAssertEqual(harness.started.first, harness.tailscale)
+    }
+
+    func testStoredDefaultPortHasNoDuplicateCandidate() async throws {
+        let harness = try RouteHarness(remote: "100.90.189.102")
+        harness.script = [harness.service: (.milliseconds(10), true), harness.tailscale: (.milliseconds(60), false)]
+        _ = await harness.race()
+        XCTAssertEqual(harness.started, [harness.service, harness.tailscale])
     }
 
     func testBonjourWinsWithinLanGrace() async throws {

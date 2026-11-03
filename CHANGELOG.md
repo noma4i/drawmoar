@@ -22,6 +22,10 @@
 - Switch between automatic drawing sends and voice notes in the editor.
 - A voice note sends only light files: the annotated image is your crop, or the area around all marks, or the whole screen scaled to 1600 px. The full screenshot stays on the phone.
 
+### Fixed
+
+- Connecting through Tailscale or a Remote address also tries the default port 47823, so a pairing that stored a wrong port still connects.
+
 ## [1.2.0] - 2026-11-02
 
 ### Added

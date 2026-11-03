@@ -167,12 +167,16 @@ struct Mac: Identifiable, Hashable {
     func connect<T>(name: String, hosts: [String], port: UInt16?, using connector: @escaping @MainActor (NWEndpoint) async throws -> T, discard: @escaping @MainActor (T) -> Void = { _ in }) async throws -> T {
         let service = NWEndpoint.service(name: name, type: bonjourServiceType, domain: "local.", interface: nil)
         let remote = remoteAddress(for: name).trimmingCharacters(in: .whitespacesAndNewlines)
-        let port = NWEndpoint.Port(rawValue: port ?? CompanionTLS.port)!
+        let defaultPort = CompanionTLS.port
+        let storedPort = port ?? defaultPort
+        let ports = storedPort == defaultPort ? [defaultPort] : [storedPort, defaultPort]
         var routes = [service]
-        for host in hosts + [remote] where !host.isEmpty {
-            let route = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: port)
-            if !routes.contains(route) {
-                routes.append(route)
+        for port in ports {
+            for host in hosts + [remote] where !host.isEmpty {
+                let route = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!)
+                if !routes.contains(route) {
+                    routes.append(route)
+                }
             }
         }
         if let last = lastRoutes[name], let index = routes.firstIndex(of: last) {
