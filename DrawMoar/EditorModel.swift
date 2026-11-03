@@ -270,8 +270,8 @@ enum EditorMode: String {
         let phrases = previous.phrases + segment.phrases.map { NotePhrase(start: $0.start + offset, end: $0.end + offset, text: $0.text, marks: $0.marks) }
         voiceSession = VoiceSession(started: previous.started, marks: marks, phrases: phrases)
         let note = Note(displayName: segment.displayName, width: segment.width, height: segment.height, duration: offset + duration, marks: marks, phrases: phrases)
-        let annotated = try image.map { try ImageRenderer.annotated(image: $0, drawing: drawing, crop: crop, marks: note.marks) } ?? Data()
-        let screenshot = image?.pngData() ?? Data()
+        let annotated = try image.map { try ImageRenderer.noteImage(image: $0, drawing: drawing, crop: crop, marks: note.marks) } ?? Data()
+        let screenshot = Data()
         guard let client else { throw MacError.unavailable([]) }
         let currentSession = session
         let sentRevision = revision

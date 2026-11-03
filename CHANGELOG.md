@@ -13,6 +13,7 @@
 
 - A voice session lasts until New: several recordings add to one note, marks keep counting, and each recording starts a new phrase.
 - Switch between automatic drawing sends and voice notes in the editor.
+- A voice note sends only light files: the annotated image is your crop, or the area around all marks, or the whole screen scaled to 1600 px. The full screenshot stays on the phone.
 
 ## [1.2.0] - 2026-11-02
 

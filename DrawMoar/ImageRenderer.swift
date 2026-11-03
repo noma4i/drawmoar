@@ -31,7 +31,29 @@ enum ImageRenderer {
         try annotated(image: image, drawing: drawing, crop: crop, marks: [])
     }
 
-    static func annotated(image: UIImage, drawing: PKDrawing, crop: CGRect?, marks: [NoteMark]) throws -> Data {
+    static let noteLongSide: CGFloat = 1600
+
+    static func noteRegion(size: CGSize, crop: CGRect?, marks: [NoteMark]) -> (rect: CGRect, scale: CGFloat) {
+        let bounds = CGRect(origin: .zero, size: size)
+        if let crop {
+            return (crop.intersection(bounds).integral, 1)
+        }
+        let boxes = marks.map { CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) }
+        guard let first = boxes.first else {
+            return (bounds, min(1, noteLongSide / max(size.width, size.height)))
+        }
+        let union = boxes.dropFirst().reduce(first) { $0.union($1) }
+        let padding = max(64, max(union.width, union.height) * 0.15)
+        return (union.insetBy(dx: -padding, dy: -padding).intersection(bounds).integral, 1)
+    }
+
+    static func noteImage(image: UIImage, drawing: PKDrawing, crop: CGRect?, marks: [NoteMark]) throws -> Data {
+        guard let cgImage = image.cgImage else { throw RenderError.invalidImage }
+        let region = noteRegion(size: CGSize(width: cgImage.width, height: cgImage.height), crop: crop, marks: marks)
+        return try annotated(image: image, drawing: drawing, crop: region.rect, marks: marks, outputScale: region.scale)
+    }
+
+    static func annotated(image: UIImage, drawing: PKDrawing, crop: CGRect?, marks: [NoteMark], outputScale: CGFloat = 1) throws -> Data {
         guard let cgImage = image.cgImage else { throw RenderError.invalidImage }
         let bounds = CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height)
         let scale = EditorModel.canvasScale(for: bounds.size)
@@ -41,11 +63,13 @@ enum ImageRenderer {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
-        let rendered = UIGraphicsImageRenderer(size: rect.size, format: format).image { context in
+        let outputSize = CGSize(width: max(1, (rect.width * outputScale).rounded()), height: max(1, (rect.height * outputScale).rounded()))
+        let rendered = UIGraphicsImageRenderer(size: outputSize, format: format).image { context in
+            context.cgContext.scaleBy(x: outputSize.width / rect.width, y: outputSize.height / rect.height)
             context.cgContext.translateBy(x: -rect.minX, y: -rect.minY)
             UIImage(cgImage: cgImage).draw(in: bounds)
             UITraitCollection(userInterfaceStyle: .light).performAsCurrent {
-                fullDrawing.image(from: bounds, scale: 1).draw(in: bounds)
+                fullDrawing.image(from: rect, scale: 1).draw(in: rect)
             }
             for mark in marks {
                 let left = CGFloat(mark.x) - 28

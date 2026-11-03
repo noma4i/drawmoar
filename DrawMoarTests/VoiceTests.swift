@@ -93,6 +93,57 @@ extension VoiceTests {
         return PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: [point, point], creationDate: date))
     }
 
+    private func pngSize(_ data: Data) throws -> CGSize {
+        let image = try XCTUnwrap(UIImage(data: data))
+        return CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
+    }
+
+    private func bigImage() -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: CGSize(width: 5120, height: 2880), format: format).image { _ in }
+    }
+
+    func testNoteRegionRules() {
+        let size = CGSize(width: 5120, height: 2880)
+        let marks = [NoteMark(number: 1, start: 0, x: 100, y: 100, width: 200, height: 100, on: nil), NoteMark(number: 2, start: 1, x: 1000, y: 500, width: 300, height: 200, on: nil)]
+        XCTAssertEqual(ImageRenderer.noteRegion(size: size, crop: nil, marks: marks).rect, CGRect(x: 0, y: 0, width: 1480, height: 880))
+        let crop = CGRect(x: 10, y: 20, width: 300, height: 200)
+        XCTAssertEqual(ImageRenderer.noteRegion(size: size, crop: crop, marks: marks).rect, crop)
+        let whole = ImageRenderer.noteRegion(size: size, crop: nil, marks: [])
+        XCTAssertEqual(whole.rect.width * whole.scale, 1600)
+    }
+
+    @MainActor func testNoteSendsLightImageOnly() async throws {
+        let client = VoiceClient()
+        let model = try makeModel(client)
+        model.image = bigImage()
+        let started = Date(timeIntervalSince1970: 1_000_000)
+        try await model.sendVoiceNote(words: [], started: started, duration: 5)
+        XCTAssertTrue(client.screenshot.isEmpty)
+        XCTAssertEqual(try pngSize(client.annotated).width, 1600)
+
+        let scale = EditorModel.canvasScale(for: CGSize(width: 5120, height: 2880))
+        func stroke(_ x: CGFloat, _ y: CGFloat, at date: Date) -> PKStroke {
+            let points = [x, x + 300].map { PKStrokePoint(location: CGPoint(x: $0 * scale, y: y * scale), timeOffset: 0, size: CGSize(width: 1, height: 1), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2) }
+            return PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: points, creationDate: date))
+        }
+        model.drawing = PKDrawing(strokes: [stroke(100, 100, at: started.addingTimeInterval(1)), stroke(1000, 500, at: started.addingTimeInterval(3))])
+        try await model.sendVoiceNote(words: [], started: started, duration: 5)
+        let note = try XCTUnwrap(client.note)
+        XCTAssertEqual(note.marks.count, 2)
+        let boxes = note.marks.map { CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) }
+        let union = boxes[0].union(boxes[1])
+        let padding = max(64, max(union.width, union.height) * 0.15)
+        let expected = union.insetBy(dx: -padding, dy: -padding).intersection(CGRect(x: 0, y: 0, width: 5120, height: 2880)).integral
+        XCTAssertTrue(client.screenshot.isEmpty)
+        XCTAssertEqual(try pngSize(client.annotated), expected.size)
+
+        model.crop = CGRect(x: 200, y: 300, width: 640, height: 480)
+        try await model.sendVoiceNote(words: [], started: started, duration: 5)
+        XCTAssertEqual(try pngSize(client.annotated), CGSize(width: 640, height: 480))
+    }
+
     @MainActor func testSessionAccumulatesUntilNew() async throws {
         let client = VoiceClient()
         let model = try makeModel(client)
