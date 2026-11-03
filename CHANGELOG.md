@@ -15,6 +15,7 @@
 
 ### Changed
 
+- Editor controls sit on one aligned grid: icons only with 44 pt slots in groups with hairline dividers, a fixed Draw/Note pill, and the status in a small capsule at the end of the tool row (under New in the trailing rail).
 - Top toolbar buttons have 44 pt touch targets with wider spacing. On a narrow phone, Settings, History, Crop, Window, and New move into a More menu. On a wide landscape screen the toolbar moves to a trailing rail and stays inside the safe area.
 - The mark number on the note image is a blue circle with a white digit, sized to 3.5% of the image long side (at least 28 px), so it stays readable on large screens.
 - Connecting to the Mac races Bonjour, Tailscale, and Remote address routes at once and picks the best one (local network wins when it is nearly as fast). When Wi-Fi or the network changes, DrawMoar picks a new route by itself. Settings shows the route in use.

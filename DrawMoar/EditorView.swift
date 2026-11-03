@@ -130,24 +130,22 @@ struct EditorView: View {
     private var editor: some View {
         GeometryReader { proxy in
             let layout = ToolbarLayout.resolve(width: proxy.size.width, height: proxy.size.height, horizontalSizeClass: sizeClass)
-            let collapsed = layout == .topRow && proxy.size.width < ToolbarLayout.inlineMinWidth
+            let rowGroups = ToolbarPlan.rowGroups(availableWidth: proxy.size.width - 2 * ToolbarPlan.inset)
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
                     if layout == .topRow {
-                        toolbarButtons(layout: layout, collapsed: collapsed).padding(8)
+                        toolbarRow(groups: rowGroups)
+                            .frame(maxWidth: .infinity)
+                            .padding(ToolbarPlan.inset)
                     }
-                    VStack(spacing: 0) { bottomBar; statusRow }.background(.regularMaterial)
+                    toolRow(layout: layout).background(.regularMaterial)
                     canvasArea
                 }
                 if layout == .trailingRail {
-                    ScrollView(.vertical, showsIndicators: false) {
-                        toolbarButtons(layout: layout, collapsed: false).padding(8)
-                    }
-                    .fixedSize(horizontal: true, vertical: false)
-                    .background(.regularMaterial)
+                    toolbarRail
                 }
             }
-            .animation(.easeOut(duration: 0.2), value: layout)
+            .animation(.easeOut(duration: 0.15), value: layout)
         }
     }
 
@@ -188,219 +186,303 @@ struct EditorView: View {
         selectingWindow = true
     }
 
-    private func slot(_ view: some View, width: CGFloat = 44) -> some View {
-        view.frame(minWidth: width, minHeight: 44).contentShape(Rectangle())
+    private var selecting: Bool {
+        cropping || selectingWindow
     }
 
-    private func toolbarButtons(layout: ToolbarLayout, collapsed: Bool) -> some View {
-        let stack = layout == .topRow ? AnyLayout(HStackLayout(spacing: 12)) : AnyLayout(VStackLayout(spacing: 12))
-        let outer = layout == .topRow ? AnyLayout(HStackLayout(spacing: 0)) : AnyLayout(VStackLayout(spacing: 0))
-        let selecting = cropping || selectingWindow
-        return outer {
-            stack {
-                if !collapsed {
-                    Button("Settings", systemImage: "gearshape") { flow.showSettings = true }
-                        .labelStyle(.iconOnly)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                        .accessibilityLabel("Settings")
-                    Button("History", systemImage: "sidebar.left") { showHistory.toggle() }
-                        .labelStyle(.iconOnly)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
+    private func divider(_ axis: Axis) -> some View {
+        Rectangle().fill(Color.secondary.opacity(0.4))
+            .frame(width: axis == .horizontal ? 1 : ToolbarPlan.groupGap, height: axis == .horizontal ? ToolbarPlan.groupGap : 1)
+            .frame(width: axis == .horizontal ? ToolbarPlan.groupGap : ToolbarPlan.railWidth - 2 * ToolbarPlan.inset,
+                   height: axis == .horizontal ? ToolbarPlan.slot : ToolbarPlan.groupGap)
+            .accessibilityHidden(true)
+    }
+
+    private func stack(_ axis: Axis, spacing: CGFloat) -> AnyLayout {
+        axis == .horizontal ? AnyLayout(HStackLayout(spacing: spacing)) : AnyLayout(VStackLayout(spacing: spacing))
+    }
+
+    private func toolbarRow(groups: [[ToolbarItem]]) -> some View {
+        let visible = Set(groups.flatMap { $0 })
+        let layout = stack(.horizontal, spacing: 0)
+        return layout {
+            ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
+                if index > 0 {
+                    divider(.horizontal)
                 }
-                Button("Replay", systemImage: "play.circle") { Task { replay = await model.replaySourceForCurrent() } }
-                    .labelStyle(.iconOnly)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-                    .opacity(model.replayAvailable ? 1 : 0)
-                    .disabled(!model.replayAvailable)
-                    .accessibilityHidden(!model.replayAvailable)
-                modePicker(layout: layout)
-                ZStack {
-                    if model.transcribing {
-                        ProgressView()
-                            .accessibilityLabel(model.voice.loading ? "Loading model" : "Transcribing")
-                    } else {
-                        Button(model.recording ? "Stop recording" : "Record voice", systemImage: model.recording ? "stop.circle" : "mic") { Task { await model.toggleRecording() } }
-                            .labelStyle(.iconOnly)
-                            .disabled(model.startingRecording)
-                            .foregroundStyle(model.recording ? Color.red : Color.primary)
-                            .overlay(alignment: .topTrailing) {
-                                if model.voice.loading {
-                                    ProgressView()
-                                        .controlSize(.mini)
-                                        .accessibilityHidden(true)
-                                        .transition(.opacity)
-                                }
-                            }
-                            .accessibilityValue(model.voice.loading ? "Preparing voice model" : "")
-                    }
+                groupView(group, axis: .horizontal, visible: visible)
+            }
+        }
+        .fixedSize()
+    }
+
+    private var toolbarRail: some View {
+        let groups = ToolbarPlan.railGroups
+        let visible = Set(groups.flatMap { $0 })
+        let content = VStack(spacing: 0) {
+            ForEach(Array(groups.dropLast().enumerated()), id: \.offset) { index, group in
+                if index > 0 {
+                    divider(.vertical)
                 }
-                .frame(width: 44, height: 44)
+                groupView(group, axis: .vertical, visible: visible)
+            }
+            Spacer(minLength: ToolbarPlan.groupGap)
+            divider(.vertical)
+            if let last = groups.last {
+                groupView(last, axis: .vertical, visible: visible)
+            }
+            statusCapsule.padding(.top, 8)
+        }
+        .padding(.vertical, ToolbarPlan.railVerticalInset)
+        .frame(width: ToolbarPlan.railWidth)
+        return ViewThatFits(in: .vertical) {
+            content
+            ScrollView(.vertical, showsIndicators: false) { content }
+        }
+        .frame(width: ToolbarPlan.railWidth)
+        .background(.regularMaterial)
+    }
+
+    private func groupView(_ group: [ToolbarItem], axis: Axis, visible: Set<ToolbarItem>) -> some View {
+        let layout = stack(axis, spacing: ToolbarPlan.itemSpacing)
+        return layout {
+            ForEach(group, id: \.self) { item in
+                itemView(item, axis: axis, visible: visible)
+            }
+        }
+    }
+
+    private func iconSlot(_ symbol: String, label: String, tint: Color = .primary, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 20, weight: .medium))
+                .foregroundStyle(tint)
+                .frame(width: ToolbarPlan.slot, height: ToolbarPlan.slot)
                 .contentShape(Rectangle())
-                .opacity(model.mode == .note ? 1 : 0)
-                .disabled(model.mode != .note)
-                .accessibilityHidden(model.mode != .note)
-                .animation(.easeOut(duration: 0.15), value: model.recording)
-                .animation(.easeOut(duration: 0.15), value: model.transcribing)
-                .animation(.easeOut(duration: 0.15), value: model.voice.loading)
-                .animation(.easeOut(duration: 0.15), value: model.mode)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    @ViewBuilder private func itemView(_ item: ToolbarItem, axis: Axis, visible: Set<ToolbarItem>) -> some View {
+        switch item {
+        case .settings:
+            iconSlot("gearshape", label: "Settings") { flow.showSettings = true }
+        case .history:
+            iconSlot("sidebar.left", label: "History") { showHistory.toggle() }
+        case .mode:
+            modePill(axis: axis)
+        case .mic:
+            micSlot
+        case .replay:
+            iconSlot("play.circle", label: "Replay") { Task { replay = await model.replaySourceForCurrent() } }
+                .opacity(model.replayAvailable ? 1 : 0)
+                .disabled(!model.replayAvailable)
+                .accessibilityHidden(!model.replayAvailable)
+                .animation(.easeOut(duration: 0.15), value: model.replayAvailable)
+        case .crop:
+            iconSlot("crop", label: "Crop") { startCrop() }
+                .disabled(model.image == nil || selecting)
+        case .window:
+            iconSlot("macwindow", label: "Window") { startWindowSelection() }
+                .disabled(model.image == nil || model.windows.isEmpty || selecting)
+        case .undo:
+            if selecting {
+                iconSlot("xmark.circle", label: "Cancel") { cropping = false; selectingWindow = false; cropDraft = nil }
+            } else {
+                iconSlot("arrow.uturn.backward", label: "Undo") { model.undo() }
+                    .disabled(!model.canUndo)
             }
-            Spacer(minLength: 12)
-            stack {
-                if selecting {
-                    Button("Cancel") { cropping = false; selectingWindow = false; cropDraft = nil }
-                        .frame(minWidth: 44, minHeight: 44)
-                        .contentShape(Rectangle())
-                    Button("Done") {
-                        if let cropDraft {
-                            model.applyCrop(cropDraft)
-                        }
-                        cropping = false
-                        selectingWindow = false
+        case .redo:
+            if selecting {
+                iconSlot("checkmark.circle", label: "Done") {
+                    if let cropDraft {
+                        model.applyCrop(cropDraft)
                     }
-                    .frame(minWidth: 44, minHeight: 44)
+                    cropping = false
+                    selectingWindow = false
+                }
+            } else {
+                iconSlot("arrow.uturn.forward", label: "Redo") { model.redo() }
+                    .disabled(!model.canRedo)
+                    .opacity(model.canRedo ? 1 : 0)
+                    .accessibilityHidden(!model.canRedo)
+                    .animation(.easeOut(duration: 0.15), value: model.canRedo)
+            }
+        case .new:
+            iconSlot("plus.viewfinder", label: "New") { Task { await model.newCapture() } }
+        case .more:
+            Menu {
+                if !visible.contains(.settings) {
+                    Button("Settings", systemImage: "gearshape") { flow.showSettings = true }
+                }
+                if !visible.contains(.history) {
+                    Button("History", systemImage: "sidebar.left") { showHistory.toggle() }
+                }
+                if !visible.contains(.crop) {
+                    Button("Crop", systemImage: "crop") { startCrop() }.disabled(model.image == nil || selecting)
+                    Button("Window", systemImage: "macwindow") { startWindowSelection() }
+                        .disabled(model.image == nil || model.windows.isEmpty || selecting)
+                }
+                if !visible.contains(.new) {
+                    Button("New", systemImage: "plus.viewfinder") { Task { await model.newCapture() } }
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(Color.primary)
+                    .frame(width: ToolbarPlan.slot, height: ToolbarPlan.slot)
                     .contentShape(Rectangle())
-                } else {
-                    if !collapsed {
-                        Button("Crop") { startCrop() }
-                            .disabled(model.image == nil)
-                            .frame(minWidth: 44, minHeight: 44)
-                            .contentShape(Rectangle())
-                        Button("Window", systemImage: "macwindow") { startWindowSelection() }
-                            .labelStyle(.iconOnly)
-                            .accessibilityLabel("Window")
-                            .disabled(model.image == nil || model.windows.isEmpty)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    Button("Undo", systemImage: "arrow.uturn.backward") { model.undo() }
-                        .labelStyle(.iconOnly)
-                        .accessibilityLabel("Undo")
-                        .disabled(!model.canUndo)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                    Button("Redo", systemImage: "arrow.uturn.forward") { model.redo() }
-                        .labelStyle(.iconOnly)
-                        .accessibilityLabel("Redo")
-                        .disabled(!model.canRedo)
-                        .opacity(model.canRedo ? 1 : 0)
-                        .accessibilityHidden(!model.canRedo)
-                        .animation(.easeOut(duration: 0.15), value: model.canRedo)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                    if collapsed {
-                        Menu {
-                            Button("Settings", systemImage: "gearshape") { flow.showSettings = true }
-                            Button("History", systemImage: "sidebar.left") { showHistory.toggle() }
-                            Button("Crop") { startCrop() }.disabled(model.image == nil)
-                            Button("Window", systemImage: "macwindow") { startWindowSelection() }
-                                .disabled(model.image == nil || model.windows.isEmpty)
-                            Button("New") { Task { await model.newCapture() } }
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }
-                        .accessibilityLabel("More")
-                    } else {
-                        Button("New") { Task { await model.newCapture() } }
-                            .frame(minWidth: 44, minHeight: 44)
-                            .contentShape(Rectangle())
+            }
+            .accessibilityLabel("More")
+        }
+    }
+
+    private var micSlot: some View {
+        ZStack {
+            if model.transcribing {
+                ProgressView()
+                    .accessibilityLabel(model.voice.loading ? "Loading model" : "Transcribing")
+            } else {
+                iconSlot(model.recording ? "stop.circle.fill" : "mic", label: model.recording ? "Stop recording" : "Record voice", tint: model.recording ? .red : .primary) {
+                    Task { await model.toggleRecording() }
+                }
+                .disabled(model.startingRecording)
+                .overlay(alignment: .topTrailing) {
+                    if model.voice.loading {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .padding(6)
+                            .accessibilityHidden(true)
+                            .transition(.opacity)
                     }
                 }
+                .accessibilityValue(model.voice.loading ? "Preparing voice model" : "")
             }
         }
-        .font(.subheadline)
-        .buttonStyle(.plain)
-        .fixedSize(horizontal: layout == .trailingRail, vertical: layout == .topRow)
+        .frame(width: ToolbarPlan.slot, height: ToolbarPlan.slot)
+        .opacity(model.mode == .note ? 1 : 0)
+        .disabled(model.mode != .note)
+        .accessibilityHidden(model.mode != .note)
+        .animation(.easeOut(duration: 0.15), value: model.recording)
+        .animation(.easeOut(duration: 0.15), value: model.transcribing)
+        .animation(.easeOut(duration: 0.15), value: model.voice.loading)
+        .animation(.easeOut(duration: 0.15), value: model.mode)
     }
 
-    @ViewBuilder private func modePicker(layout: ToolbarLayout) -> some View {
+    private func modePill(axis: Axis) -> some View {
         let locked = model.recording || model.startingRecording || model.transcribing
-        if layout == .topRow {
-            Picker("Drawing mode", selection: $model.mode) {
-                Text("Draw").tag(EditorMode.draw)
-                Text("Note").tag(EditorMode.note)
+        let segments: [(EditorMode, String, String)] = [(.draw, "scribble.variable", "Draw"), (.note, "waveform", "Note")]
+        let layout = stack(axis, spacing: 0)
+        return layout {
+            ForEach(segments, id: \.0) { mode, symbol, label in
+                Button { model.mode = mode } label: {
+                    Image(systemName: symbol)
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(model.mode == mode ? Color.accentColor : Color.secondary)
+                        .frame(width: axis == .horizontal ? ToolbarPlan.slot : ToolbarPlan.pillThickness,
+                               height: axis == .horizontal ? ToolbarPlan.pillThickness : ToolbarPlan.slot)
+                        .background(model.mode == mode ? Color.accentColor.opacity(0.2) : .clear, in: Capsule())
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(label)
+                .accessibilityAddTraits(model.mode == mode ? .isSelected : [])
             }
-            .pickerStyle(.segmented)
-            .frame(width: 96, height: 44)
-            .accessibilityLabel("Drawing mode")
-            .disabled(locked)
-        } else {
-            Button {
-                model.mode = model.mode == .draw ? .note : .draw
-            } label: {
-                Image(systemName: model.mode == .draw ? "pencil.tip" : "note.text")
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("Drawing mode")
-            .accessibilityValue(model.mode == .draw ? "Draw" : "Note")
-            .disabled(locked)
         }
+        .background(Color.secondary.opacity(0.12), in: Capsule())
+        .frame(width: axis == .horizontal ? ToolbarPlan.pillLength : ToolbarPlan.slot,
+               height: axis == .horizontal ? ToolbarPlan.slot : ToolbarPlan.pillLength)
+        .disabled(locked)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Drawing mode")
     }
 
-    private var bottomBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
+    private func toolRow(layout: ToolbarLayout) -> some View {
+        let reserve: CGFloat = layout == .topRow ? ToolbarPlan.statusReserve : 0
+        let row = HStack(spacing: 0) {
+            toolGroup {
                 ForEach(DrawTool.allCases, id: \.self) { tool in
                     Button { model.setTool(tool) } label: {
                         Image(systemName: tool.symbol)
-                            .font(.title3)
+                            .font(.system(size: 20, weight: .medium))
                             .foregroundStyle(model.tool == tool ? Color.accentColor : Color.secondary)
-                            .frame(width: 44, height: 44)
+                            .frame(width: ToolbarPlan.slot, height: ToolbarPlan.slot)
                             .background(model.tool == tool ? Color.accentColor.opacity(0.15) : .clear, in: Capsule())
+                            .contentShape(Rectangle())
                     }
                     .accessibilityLabel(tool.title)
                     .accessibilityAddTraits(model.tool == tool ? .isSelected : [])
                 }
+            }
+            divider(.horizontal)
+            toolGroup {
                 ForEach(InkColor.allCases, id: \.self) { ink in
                     Button { model.setInkColor(ink) } label: {
                         Circle().fill(Color(ink.color))
                             .frame(width: 24, height: 24)
                             .overlay(Circle().stroke(Color.primary, lineWidth: model.inkColor == ink ? 3 : 0))
-                            .frame(width: 44, height: 44)
+                            .frame(width: ToolbarPlan.slot, height: ToolbarPlan.slot)
+                            .contentShape(Rectangle())
                     }
                     .accessibilityLabel("Color \(ink.rawValue)")
                     .accessibilityAddTraits(model.inkColor == ink ? .isSelected : [])
                 }
                 .disabled(model.tool == .eraser)
+            }
+            divider(.horizontal)
+            toolGroup {
                 ForEach(Array(EditorModel.lineWidths.enumerated()), id: \.element) { index, width in
                     Button { model.setLineWidth(width) } label: {
                         Circle().fill(model.lineWidth == width ? Color.accentColor : Color.secondary)
                             .frame(width: CGFloat(6 + index * 4), height: CGFloat(6 + index * 4))
-                            .frame(width: 44, height: 44)
+                            .frame(width: ToolbarPlan.slot, height: ToolbarPlan.slot)
                             .background(model.lineWidth == width ? Color.accentColor.opacity(0.15) : .clear, in: Capsule())
+                            .contentShape(Rectangle())
                     }
                     .accessibilityLabel("Line width \(index + 1)")
                     .accessibilityAddTraits(model.lineWidth == width ? .isSelected : [])
                 }
                 .disabled(model.tool == .eraser)
             }
-            .padding(.horizontal, 8)
+        }
+        .buttonStyle(.plain)
+        return ViewThatFits(in: .horizontal) {
+            row.padding(.horizontal, reserve).frame(maxWidth: .infinity)
+            ScrollView(.horizontal, showsIndicators: false) { row.padding(.leading, ToolbarPlan.inset).padding(.trailing, reserve) }
+        }
+        .overlay(alignment: .trailing) {
+            if layout == .topRow {
+                statusCapsule.padding(.trailing, ToolbarPlan.inset)
+            }
         }
         .padding(.vertical, 4)
     }
 
-    private var statusRow: some View {
-        HStack {
+    private func toolGroup(@ViewBuilder _ content: () -> some View) -> some View {
+        HStack(spacing: ToolbarPlan.itemSpacing, content: content)
+    }
+
+    private var statusCapsule: some View {
+        HStack(spacing: 4) {
             if model.sending {
-                ProgressView()
+                ProgressView().controlSize(.mini)
                 Text("Sending…")
             } else if model.delivered {
                 Text("On Mac ✓")
+            } else if let error = model.sendError {
+                Text(error).foregroundStyle(.red)
             } else {
                 Text("Not sent")
-                if let error = model.sendError {
-                    Text(error).foregroundStyle(.red)
-                }
             }
         }
-        .font(.caption)
-        .frame(minHeight: 20)
-        .padding(.horizontal, 8)
+        .font(.caption2)
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+        .padding(.horizontal, 6)
+        .frame(maxWidth: ToolbarPlan.statusReserve - ToolbarPlan.inset, minHeight: 22, maxHeight: 22)
+        .background(Color.secondary.opacity(0.15), in: Capsule())
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -426,9 +508,51 @@ enum ToolbarLayout: Equatable {
     case topRow
     case trailingRail
 
-    static let inlineMinWidth: CGFloat = 600
-
     static func resolve(width: CGFloat, height: CGFloat, horizontalSizeClass: UserInterfaceSizeClass?) -> ToolbarLayout {
         width > height && horizontalSizeClass == .regular ? .trailingRail : .topRow
+    }
+}
+
+enum ToolbarItem: Hashable {
+    case settings, history, mode, mic, replay, crop, window, undo, redo, new, more
+}
+
+enum ToolbarPlan {
+    static let slot: CGFloat = 44
+    static let pillLength: CGFloat = 88
+    static let pillThickness: CGFloat = 36
+    static let itemSpacing: CGFloat = 8
+    static let groupGap: CGFloat = 16
+    static let inset: CGFloat = 8
+    static let railWidth: CGFloat = 60
+    static let railVerticalInset: CGFloat = 12
+    static let statusReserve: CGFloat = 80
+
+    static let railGroups: [[ToolbarItem]] = [
+        [.settings, .history], [.mode, .mic, .replay], [.crop, .window], [.undo, .redo], [.new],
+    ]
+
+    static func length(of item: ToolbarItem) -> CGFloat {
+        item == .mode ? pillLength : slot
+    }
+
+    static func length(of group: [ToolbarItem]) -> CGFloat {
+        group.reduce(0) { $0 + length(of: $1) } + CGFloat(max(group.count - 1, 0)) * itemSpacing
+    }
+
+    static func length(of groups: [[ToolbarItem]]) -> CGFloat {
+        groups.reduce(0) { $0 + length(of: $1) } + CGFloat(max(groups.count - 1, 0)) * groupGap
+    }
+
+    static func rowGroups(availableWidth: CGFloat) -> [[ToolbarItem]] {
+        let full = railGroups
+        if length(of: full) <= availableWidth {
+            return full
+        }
+        let cropInMore: [[ToolbarItem]] = [full[0], full[1], [.more], full[3], full[4]]
+        if length(of: cropInMore) <= availableWidth {
+            return cropInMore
+        }
+        return [full[1], [.more], full[3]]
     }
 }
