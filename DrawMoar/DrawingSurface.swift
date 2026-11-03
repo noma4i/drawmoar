@@ -12,7 +12,7 @@ struct DrawingSurface: UIViewRepresentable {
     let windows: [WindowFrame]
     let selectWindow: (CGPoint, Bool) -> Void
     let canvas: PKCanvasView
-    let lineWidth: CGFloat
+    let tool: PKTool
     let setUsingTool: (Bool) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -52,18 +52,15 @@ struct DrawingSurface: UIViewRepresentable {
             context.coordinator.parent.selectWindow(CGPoint(x: point.x / scale, y: point.y / scale), confirm)
         }
         content.addSubview(windowOverlay)
-        context.coordinator.picker.colorUserInterfaceStyle = .light
-        context.coordinator.picker.setVisible(true, forFirstResponder: canvas)
-        context.coordinator.picker.addObserver(canvas)
-        context.coordinator.picker.addObserver(context.coordinator)
-        canvas.becomeFirstResponder()
-        context.coordinator.applyWidth()
+        canvas.tool = tool
         return scroll
     }
 
     func updateUIView(_ scroll: UIScrollView, context: Context) {
         context.coordinator.parent = self
-        context.coordinator.applyWidth()
+        if !(canvas.tool as AnyObject).isEqual(tool) {
+            canvas.tool = tool
+        }
         guard let cgImage = image.cgImage, let content = scroll.viewWithTag(1),
               let imageView = content.viewWithTag(2) as? UIImageView,
               let overlay = content.viewWithTag(3) as? CropOverlay,
@@ -92,9 +89,8 @@ struct DrawingSurface: UIViewRepresentable {
         overlay.setNeedsDisplay()
     }
 
-    final class Coordinator: NSObject, UIScrollViewDelegate, PKCanvasViewDelegate, PKToolPickerObserver {
+    final class Coordinator: NSObject, UIScrollViewDelegate, PKCanvasViewDelegate {
         var parent: DrawingSurface
-        let picker = PKToolPicker()
         var canvasScale: CGFloat {
             guard let image = parent.image.cgImage else { return 1 }
             return EditorModel.canvasScale(for: CGSize(width: image.width, height: image.height))
@@ -123,30 +119,6 @@ struct DrawingSurface: UIViewRepresentable {
 
         func canvasViewDidEndUsingTool(_: PKCanvasView) {
             parent.setUsingTool(false)
-        }
-
-        func applyWidth() {
-            if let tool = canvasInkingTool() {
-                let adjusted = EditorModel.inkingTool(tool, width: parent.lineWidth, scale: canvasScale)
-                if (parent.canvas.tool as? PKInkingTool) != adjusted {
-                    parent.canvas.tool = adjusted
-                }
-            }
-        }
-
-        private func canvasInkingTool() -> PKInkingTool? {
-            if #available(iOS 18.0, *) {
-                return (picker.selectedToolItem as? PKToolPickerInkingItem)?.inkingTool
-            }
-            return picker.selectedTool as? PKInkingTool
-        }
-
-        func toolPickerSelectedToolItemDidChange(_: PKToolPicker) {
-            applyWidth()
-        }
-
-        func toolPickerSelectedToolDidChange(_: PKToolPicker) {
-            applyWidth()
         }
     }
 }

@@ -1,9 +1,46 @@
 import CompanionKit
 @testable import DrawMoar
 import FluidAudio
+import PencilKit
 import XCTest
 
 final class VoiceTests: XCTestCase {
+    func testDownloadText() {
+        let text = DownloadText(fraction: 0.42, phase: .downloading(completedFiles: 2, totalFiles: 7), downloaded: 265_000_000, total: 630_000_000)
+        XCTAssertEqual(text.percent, "42%")
+        XCTAssertEqual(text.phase, "File 3 of 7")
+        XCTAssertEqual(text.bytes, "265 MB of 630 MB")
+        XCTAssertFalse(DownloadText(fraction: 0, phase: .listing, downloaded: 0, total: nil).bytes.contains(" of "))
+    }
+
+    @MainActor func testDrawingModesAndPersistence() async throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        let client = VoiceClient()
+        let model = EditorModel(client: client, defaults: defaults, delay: {}, startVoice: {}, stopVoice: { ([], Date().addingTimeInterval(-1)) }, transcribeVoice: { _ in [] })
+        model.image = UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10)).image { _ in }
+        let point = PKStrokePoint(location: CGPoint(x: 1, y: 1), timeOffset: 0, size: CGSize(width: 1, height: 1), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+        let stroke = PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: [point, point], creationDate: Date()))
+        let pasted = expectation(description: "drawing sent")
+        client.onPaste = { pasted.fulfill() }
+        model.drawing = PKDrawing(strokes: [stroke])
+        await fulfillment(of: [pasted], timeout: 5)
+        XCTAssertNotNil(try UIImage(data: XCTUnwrap(client.pasted)))
+        XCTAssertEqual(client.noteCount, 0)
+        client.onPaste = nil
+        client.pasted = nil
+        model.mode = .note
+        XCTAssertEqual(EditorModel(client: nil, defaults: defaults).mode, .note)
+        await model.toggleRecording()
+        model.drawing = PKDrawing(strokes: [stroke, stroke])
+        for _ in 0 ..< 20 {
+            await Task.yield()
+        }
+        XCTAssertNil(client.pasted)
+        await model.toggleRecording()
+        XCTAssertEqual(client.noteCount, 1)
+        XCTAssertNil(client.pasted)
+    }
+
     func testGroupsAndPhrases() {
         let rect = CGRect(x: 10, y: 10, width: 20, height: 20)
         let words = [NoteBuilder.Word(text: "first", start: 1, end: 1.2), .init(text: "second", start: 4, end: 4.2)]
@@ -49,6 +86,8 @@ final class VoiceTests: XCTestCase {
     var note: Note?
     var pasted: Data?
     var fail = false
+    var noteCount = 0
+    var onPaste: (() -> Void)?
     func capture(displayId _: UInt32?) async throws -> (png: Data, windows: [WindowFrame]) {
         throw MacError.unexpected
     }
@@ -59,12 +98,14 @@ final class VoiceTests: XCTestCase {
 
     func paste(_ data: Data, session _: String) async throws {
         pasted = data
+        onPaste?()
     }
 
     func note(annotated: Data, screenshot: Data, note: Note, session _: String) async throws {
         self.annotated = annotated
         self.screenshot = screenshot
         self.note = note
+        noteCount += 1
         if fail {
             throw MacError.remote("unknown")
         }

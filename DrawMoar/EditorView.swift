@@ -94,7 +94,7 @@ struct EditorView: View {
     private var editor: some View {
         VStack(spacing: 0) {
             toolbarButtons.padding(8)
-            bottomBar.background(.regularMaterial)
+            VStack(spacing: 0) { bottomBar; statusRow }.background(.regularMaterial)
             if let error = model.error {
                 Text(error).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true).padding(4)
             }
@@ -104,7 +104,7 @@ struct EditorView: View {
                     if confirm, cropDraft != nil {
                         selectingWindow = false
                     }
-                }, canvas: canvas, lineWidth: model.lineWidth, setUsingTool: model.setUsingTool)
+                }, canvas: canvas, tool: EditorModel.pkTool(model.tool, color: model.inkColor, width: model.lineWidth, scale: EditorModel.canvasScale(for: CGSize(width: image.cgImage?.width ?? 1, height: image.cgImage?.height ?? 1))), setUsingTool: model.setUsingTool)
             } else {
                 Spacer()
                 if model.busy {
@@ -124,13 +124,22 @@ struct EditorView: View {
                 .accessibilityLabel("Settings")
             Button("History", systemImage: "sidebar.left") { showHistory.toggle() }
                 .labelStyle(.iconOnly)
-            if model.transcribing {
-                ProgressView("Transcribing")
-            } else {
-                Button(model.recording ? "Stop recording" : "Record voice", systemImage: model.recording ? "stop.circle" : "mic") { Task { await model.toggleRecording() } }
-                    .labelStyle(.iconOnly)
-                    .disabled(model.startingRecording)
-                    .foregroundStyle(model.recording ? Color.red : Color.primary)
+            Picker("Drawing mode", selection: $model.mode) {
+                Text("Draw").tag(EditorMode.draw)
+                Text("Note").tag(EditorMode.note)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("Drawing mode")
+            .disabled(model.recording || model.startingRecording || model.transcribing)
+            if model.mode == .note {
+                if model.transcribing {
+                    ProgressView("Transcribing")
+                } else {
+                    Button(model.recording ? "Stop recording" : "Record voice", systemImage: model.recording ? "stop.circle" : "mic") { Task { await model.toggleRecording() } }
+                        .labelStyle(.iconOnly)
+                        .disabled(model.startingRecording)
+                        .foregroundStyle(model.recording ? Color.red : Color.primary)
+                }
             }
             Spacer(minLength: 16)
             if cropping || selectingWindow {
@@ -177,34 +186,59 @@ struct EditorView: View {
     }
 
     private var bottomBar: some View {
-        HStack(spacing: 4) {
-            ForEach(Array(EditorModel.lineWidths.enumerated()), id: \.element) { index, width in
-                Button { model.setLineWidth(width) } label: {
-                    Circle().fill(model.lineWidth == width ? Color.accentColor : Color.secondary)
-                        .frame(width: CGFloat(6 + index * 4), height: CGFloat(6 + index * 4))
-                        .frame(width: 44, height: 44)
-                        .background(model.lineWidth == width ? Color.accentColor.opacity(0.15) : .clear, in: Capsule())
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                Picker("Drawing tool", selection: Binding(get: { model.tool }, set: { model.setTool($0) })) {
+                    Text("Pen").tag(DrawTool.pen)
+                    Text("Marker").tag(DrawTool.marker)
+                    Text("Eraser").tag(DrawTool.eraser)
                 }
-                .accessibilityLabel("Line width \(index + 1)")
-                .accessibilityAddTraits(model.lineWidth == width ? .isSelected : [])
-            }
-            Spacer(minLength: 4)
-            HStack {
-                if model.sending {
-                    ProgressView()
-                    Text("Sending…")
-                } else if model.delivered {
-                    Text("On Mac ✓")
-                } else {
-                    Text("Not sent")
-                    if let error = model.sendError {
-                        Text(error).foregroundStyle(.red)
+                .pickerStyle(.segmented)
+                .accessibilityLabel("Drawing tool")
+                .frame(width: 210)
+                ForEach(InkColor.allCases, id: \.self) { ink in
+                    Button { model.setInkColor(ink) } label: {
+                        Circle().fill(Color(ink.color))
+                            .frame(width: 24, height: 24)
+                            .overlay(Circle().stroke(Color.primary, lineWidth: model.inkColor == ink ? 3 : 0))
+                            .frame(width: 44, height: 44)
                     }
+                    .accessibilityLabel("Color \(ink.rawValue)")
+                    .accessibilityAddTraits(model.inkColor == ink ? .isSelected : [])
+                }
+                .disabled(model.tool == .eraser)
+                ForEach(Array(EditorModel.lineWidths.enumerated()), id: \.element) { index, width in
+                    Button { model.setLineWidth(width) } label: {
+                        Circle().fill(model.lineWidth == width ? Color.accentColor : Color.secondary)
+                            .frame(width: CGFloat(6 + index * 4), height: CGFloat(6 + index * 4))
+                            .frame(width: 44, height: 44)
+                            .background(model.lineWidth == width ? Color.accentColor.opacity(0.15) : .clear, in: Capsule())
+                    }
+                    .accessibilityLabel("Line width \(index + 1)")
+                    .accessibilityAddTraits(model.lineWidth == width ? .isSelected : [])
+                }
+                .disabled(model.tool == .eraser)
+            }
+            .padding(.horizontal, 8)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var statusRow: some View {
+        HStack {
+            if model.sending {
+                ProgressView()
+                Text("Sending…")
+            } else if model.delivered {
+                Text("On Mac ✓")
+            } else {
+                Text("Not sent")
+                if let error = model.sendError {
+                    Text(error).foregroundStyle(.red)
                 }
             }
-            .font(.caption)
         }
+        .font(.caption)
         .padding(.horizontal, 8)
-        .padding(.vertical, 4)
     }
 }

@@ -29,13 +29,51 @@ enum Retention: String, CaseIterable {
     }
 }
 
+enum DrawTool: String, CaseIterable {
+    case pen, marker, eraser
+}
+
+enum InkColor: String, CaseIterable {
+    case red, orange, yellow, green, blue, black
+
+    var color: UIColor {
+        switch self {
+        case .red: UIColor(red: 1, green: 0.231, blue: 0.188, alpha: 1)
+        case .orange: UIColor(red: 1, green: 0.584, blue: 0, alpha: 1)
+        case .yellow: UIColor(red: 1, green: 0.8, blue: 0, alpha: 1)
+        case .green: UIColor(red: 0.204, green: 0.78, blue: 0.349, alpha: 1)
+        case .blue: UIColor(red: 0, green: 0.478, blue: 1, alpha: 1)
+        case .black: .black
+        }
+    }
+}
+
+enum EditorMode: String {
+    case draw, note
+}
+
 @MainActor @Observable final class EditorModel {
     let voice = VoiceModel()
     private let recorder = VoiceRecorder()
+    private let startVoice: (() async throws -> Void)?
+    private let stopVoice: (() -> (samples: [Float], started: Date))?
+    private let transcribeVoice: (([Float]) async throws -> [NoteBuilder.Word])?
     var recording = false
     private(set) var startingRecording = false
     var transcribing = false
     var showVoiceSettings = false
+    var mode: EditorMode {
+        didSet {
+            guard mode != oldValue else { return }
+            defaults.set(mode.rawValue, forKey: "editorMode")
+            debounce?.cancel()
+            readyRevision = nil
+            if mode == .draw, hasPendingSend {
+                scheduleSend()
+            }
+        }
+    }
+
     var image: UIImage?
     private(set) var windows: [WindowFrame] = []
     private var session = UUID().uuidString
@@ -89,6 +127,8 @@ enum Retention: String, CaseIterable {
     private(set) var sendError: String?
     private(set) var delivered = false
     private(set) var lineWidth: CGFloat
+    private(set) var tool: DrawTool
+    private(set) var inkColor: InkColor
     static let lineWidths: [CGFloat] = [4, 8, 16, 32]
     var client: (any MacCapturing)?
     var pairing: Pairing?
@@ -110,12 +150,13 @@ enum Retention: String, CaseIterable {
     private var saveTask: Task<Void, Never>?
     private var historySaveFailed = false
 
-    init(client: (any MacCapturing)?, pairing: Pairing? = nil, defaults: UserDefaults = .standard, deletePairing: @escaping () throws -> Void = PairingStore.delete, delay: @escaping () async throws -> Void = { try await Task.sleep(for: .milliseconds(2500)) }, render: @escaping (UIImage, PKDrawing, CGRect?) throws -> Data = ImageRenderer.png, saveCapture: @escaping (CaptureHistory, CaptureEntry) throws -> HistoryEntry = { try $0.save($1) }, historyDirectory: URL? = nil, takeInboxImage: @escaping () -> UIImage? = { SharedInbox().takeNewest() }) {
+    init(client: (any MacCapturing)?, pairing: Pairing? = nil, defaults: UserDefaults = .standard, deletePairing: @escaping () throws -> Void = PairingStore.delete, delay: @escaping () async throws -> Void = { try await Task.sleep(for: .milliseconds(2500)) }, render: @escaping (UIImage, PKDrawing, CGRect?) throws -> Data = ImageRenderer.png, saveCapture: @escaping (CaptureHistory, CaptureEntry) throws -> HistoryEntry = { try $0.save($1) }, historyDirectory: URL? = nil, takeInboxImage: @escaping () -> UIImage? = { SharedInbox().takeNewest() }, startVoice: (() async throws -> Void)? = nil, stopVoice: (() -> (samples: [Float], started: Date))? = nil, transcribeVoice: (([Float]) async throws -> [NoteBuilder.Word])? = nil) {
         let directory = historyDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Captures", isDirectory: true)
         storage = CaptureHistory(directory: directory)
         self.client = client
         self.pairing = pairing
         self.defaults = defaults
+        mode = EditorMode(rawValue: defaults.string(forKey: "editorMode") ?? "") ?? .draw
         appearance = Appearance(rawValue: defaults.string(forKey: "appearance") ?? "") ?? .system
         retention = Retention(rawValue: defaults.string(forKey: "captureRetention") ?? "") ?? .forever
         self.deletePairing = deletePairing
@@ -123,6 +164,11 @@ enum Retention: String, CaseIterable {
         self.render = render
         self.saveCapture = saveCapture
         self.takeInboxImage = takeInboxImage
+        self.startVoice = startVoice
+        self.stopVoice = stopVoice
+        self.transcribeVoice = transcribeVoice
+        tool = DrawTool(rawValue: defaults.string(forKey: "drawTool") ?? "") ?? .pen
+        inkColor = InkColor(rawValue: defaults.string(forKey: "inkColor") ?? "") ?? .red
         let savedWidth = CGFloat(defaults.double(forKey: "lineWidth"))
         lineWidth = Self.lineWidths.contains(savedWidth) ? savedWidth : Self.lineWidths[1]
         do { history = try storage.load() } catch { self.error = error.localizedDescription }
@@ -136,21 +182,33 @@ enum Retention: String, CaseIterable {
     func toggleRecording() async {
         if !recording {
             guard !startingRecording else { return }
-            guard voice.installed else { showVoiceSettings = true; return }
+            guard voice.installed || startVoice != nil else { showVoiceSettings = true; return }
             startingRecording = true
             defer { startingRecording = false }
-            do { try await recorder.start(); recording = true; error = nil }
-            catch { self.error = error.localizedDescription }
+            do {
+                if let startVoice {
+                    try await startVoice()
+                } else {
+                    try await recorder.start()
+                }
+                recording = true; error = nil
+            } catch { self.error = error.localizedDescription }
             return
         }
-        let samples = recorder.stop()
-        let started = recorder.started
+        let result = stopVoice?() ?? (samples: recorder.stop(), started: recorder.started)
+        let samples = result.samples
+        let started = result.started
         let duration = Date().timeIntervalSince(started)
         recording = false
         transcribing = true
         defer { transcribing = false }
         do {
-            let words = try await voice.transcribe(samples)
+            let words: [NoteBuilder.Word]
+            if let transcribeVoice {
+                words = try await transcribeVoice(samples)
+            } else {
+                words = try await voice.transcribe(samples)
+            }
             try await sendVoiceNote(words: words, started: started, duration: duration)
         } catch { self.error = error.localizedDescription }
     }
@@ -166,6 +224,7 @@ enum Retention: String, CaseIterable {
         let screenshot = image?.pngData() ?? Data()
         guard let client else { throw MacError.unavailable([]) }
         let currentSession = session
+        let sentRevision = revision
         if sending {
             await withCheckedContinuation { sendWaiters.append($0) }
         } else {
@@ -188,6 +247,10 @@ enum Retention: String, CaseIterable {
             try await client.paste(annotated, session: currentSession)
             self.error = "Update ClipMoar for voice notes"
         }
+        if revision == sentRevision, session == currentSession {
+            hasPendingSend = false
+            delivered = true
+        }
     }
 
     func setLineWidth(_ width: CGFloat) {
@@ -196,13 +259,29 @@ enum Retention: String, CaseIterable {
         defaults.set(Double(width), forKey: "lineWidth")
     }
 
+    func setTool(_ tool: DrawTool) {
+        self.tool = tool
+        defaults.set(tool.rawValue, forKey: "drawTool")
+    }
+
+    func setInkColor(_ color: InkColor) {
+        inkColor = color
+        defaults.set(color.rawValue, forKey: "inkColor")
+    }
+
     nonisolated static func canvasScale(for size: CGSize) -> CGFloat {
         min(1, 2048 / max(size.width, size.height))
     }
 
-    static func inkingTool(_ tool: PKInkingTool, width: CGFloat, scale: CGFloat) -> PKInkingTool {
-        let range = tool.inkType.validWidthRange
-        return PKInkingTool(tool.inkType, color: tool.color, width: min(max(width * scale, range.lowerBound), range.upperBound))
+    static func pkTool(_ tool: DrawTool, color: InkColor, width: CGFloat, scale: CGFloat) -> PKTool {
+        let type: PKInkingTool.InkType
+        switch tool {
+        case .eraser: return PKEraserTool(.vector)
+        case .pen: type = .pen
+        case .marker: type = .marker
+        }
+        let range = type.validWidthRange
+        return PKInkingTool(type, color: color.color, width: min(max(width * scale, range.lowerBound), range.upperBound))
     }
 
     func forgetMac() {
@@ -542,11 +621,11 @@ enum Retention: String, CaseIterable {
 
     private func scheduleSend() {
         debounce?.cancel()
-        guard !usingTool else { return }
+        guard mode == .draw, !usingTool else { return }
         let next = revision
         debounce = Task {
             do { try await delay() } catch { return }
-            guard !Task.isCancelled, !usingTool, revision == next else { return }
+            guard !Task.isCancelled, mode == .draw, !usingTool, revision == next else { return }
             readyRevision = next
             Task { await sendIfReady() }
         }

@@ -2,10 +2,27 @@ import FluidAudio
 import Foundation
 import Observation
 
+struct DownloadText {
+    let percent: String
+    let phase: String
+    let bytes: String
+
+    init(fraction: Double, phase: DownloadPhase, downloaded: Int64, total: Int64?) {
+        percent = "\(Int((fraction * 100).rounded()))%"
+        switch phase {
+        case .listing: self.phase = "Listing files"
+        case let .downloading(completedFiles, totalFiles): self.phase = "File \(min(completedFiles + 1, totalFiles)) of \(totalFiles)"
+        case .compiling: self.phase = "Compiling"
+        }
+        let downloadedText = ByteCountFormatter.string(fromByteCount: downloaded, countStyle: .file)
+        bytes = total.map { "\(downloadedText) of \(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file))" } ?? downloadedText
+    }
+}
+
 @MainActor @Observable final class VoiceModel {
     private(set) var installed = false
     private(set) var size: Int64 = 0
-    private(set) var progress: Double?
+    private(set) var progress: DownloadProgress?
     var error: String?
     private var manager: AsrManager?
     private var downloadTask: Task<Void, Never>?
@@ -25,11 +42,21 @@ import Observation
 
     func download() {
         guard downloadTask == nil else { return }
-        progress = 0
+        progress = DownloadProgress(fractionCompleted: 0, phase: .listing)
         downloadTask = Task {
+            let refreshTask = Task {
+                while !Task.isCancelled {
+                    refresh()
+                    do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+                }
+            }
             do {
                 let models = try await AsrModels.downloadAndLoad(version: .ultra) { value in
-                    Task { @MainActor in self.progress = value.fractionCompleted }
+                    Task { @MainActor in
+                        if self.downloadTask != nil {
+                            self.progress = value
+                        }
+                    }
                 }
                 try Task.checkCancellation()
                 manager = AsrManager(models: models)
@@ -38,6 +65,7 @@ import Observation
             } catch {
                 self.error = error.localizedDescription
             }
+            refreshTask.cancel()
             refresh()
             progress = nil
             downloadTask = nil

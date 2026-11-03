@@ -14,9 +14,14 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section("Voice") {
-                    LabeledContent("Parakeet Ultra", value: ByteCountFormatter.string(fromByteCount: model.voice.size, countStyle: .file))
+                    LabeledContent("Parakeet Ultra", value: model.voice.installed ? ByteCountFormatter.string(fromByteCount: model.voice.size, countStyle: .file) : "Not downloaded")
                     if let progress = model.voice.progress {
-                        ProgressView(value: progress)
+                        let text = DownloadText(fraction: progress.fractionCompleted, phase: progress.phase, downloaded: model.voice.size, total: nil)
+                        ProgressView(value: progress.fractionCompleted) {
+                            Text("\(text.phase) - \(text.percent)")
+                        } currentValueLabel: {
+                            Text(text.bytes)
+                        }
                         Button("Cancel") { model.voice.cancel() }
                     } else if model.voice.installed {
                         Button("Delete", role: .destructive) { model.voice.delete() }

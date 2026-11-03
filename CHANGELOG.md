@@ -5,6 +5,12 @@
 ### Added
 
 - Voice notes with on-device Parakeet Ultra transcription, numbered marks, and dictation.
+- Download progress for the voice model.
+- Built-in drawing tools: pen, marker, eraser, six colors.
+
+### Changed
+
+- Switch between automatic drawing sends and voice notes in the editor.
 
 ## [1.2.0] - 2026-11-02
 
