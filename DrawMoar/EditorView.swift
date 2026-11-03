@@ -237,8 +237,16 @@ struct EditorView: View {
             barButton("History", "sidebar.left") { history.toggle(regular: sizeClass == .regular) }
         }
         .visibility(.low)
+        ToolbarItem(placement: .topBarLeading) {
+            if layout == .oneRow {
+                modePicker
+            } else {
+                Color.clear.frame(width: 0, height: Self.slot)
+            }
+        }
+        .visibility(.high)
         ToolbarItem(placement: .principal) {
-            if layout == .oneRowWithPill {
+            if layout == .oneRow || layout == .oneRowWithPill {
                 Color.clear.frame(width: 0, height: Self.slot)
             } else {
                 modePicker
@@ -257,7 +265,6 @@ struct EditorView: View {
             barButton("Replay", "play.circle", titled: true) { Task { replay = await model.replaySourceForCurrent() } }
                 .disabled(!EditorBarItem.replay.isEnabled(state))
         }
-        .visibility(.low)
         ToolbarItem(placement: .topBarTrailing) {
             barButton("Crop", "crop", titled: true) { startCrop() }
                 .disabled(!EditorBarItem.crop.isEnabled(state))
