@@ -1,18 +1,42 @@
 import AVFoundation
 import Foundation
 
+protocol AudioSessioning {
+    func configure(_ category: AVAudioSession.Category, mode: AVAudioSession.Mode) throws
+    func activate(_ active: Bool) throws
+}
+
+extension AVAudioSession: AudioSessioning {
+    func configure(_ category: Category, mode: Mode) throws {
+        try setCategory(category, mode: mode, options: [])
+    }
+
+    func activate(_ active: Bool) throws {
+        try setActive(active, options: [])
+    }
+}
+
 final class VoiceRecorder {
-    private let engine = AVAudioEngine()
+    private var engine = AVAudioEngine()
+    private let session: any AudioSessioning
     private let lock = NSLock()
     private var samples: [Float] = []
     private(set) var started = Date()
 
+    init(session: any AudioSessioning = AVAudioSession.sharedInstance()) {
+        self.session = session
+    }
+
+    func activateSession() throws {
+        try session.configure(.record, mode: .default)
+        try session.activate(true)
+    }
+
     func start() async throws {
         let allowed = await AVAudioApplication.requestRecordPermission()
         guard allowed else { throw RecordingError.denied }
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.record, mode: .measurement)
-        try session.setActive(true)
+        try activateSession()
+        engine = AVAudioEngine()
         let input = engine.inputNode
         let source = input.outputFormat(forBus: 0)
         guard let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false),
@@ -47,7 +71,7 @@ final class VoiceRecorder {
     func stop() -> [Float] {
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)
-        try? AVAudioSession.sharedInstance().setActive(false)
+        try? session.activate(false)
         lock.lock()
         defer { lock.unlock() }
         return samples

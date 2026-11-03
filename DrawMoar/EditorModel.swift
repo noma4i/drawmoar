@@ -1,5 +1,6 @@
 import CompanionKit
 import Observation
+import os
 import PencilKit
 import SwiftUI
 import UIKit
@@ -243,6 +244,12 @@ enum EditorMode: String {
         let started = result.started
         let duration = Date().timeIntervalSince(started)
         recording = false
+        let level = VoiceSignal.rms(samples)
+        voiceLog.info("recording \(Double(samples.count) / 16000, format: .fixed(precision: 1), privacy: .public) s rms \(level, format: .exponential(precision: 2), privacy: .public)")
+        if !samples.isEmpty, level < VoiceSignal.silenceThreshold {
+            error = VoiceSignal.silentMessage
+            return
+        }
         transcribing = true
         defer { transcribing = false }
         do {

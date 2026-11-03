@@ -71,7 +71,53 @@ enum VoiceError: LocalizedError {
 
 typealias Transcriber = ([Float]) async throws -> [NoteBuilder.Word]
 
-private let voiceLog = Logger(subsystem: "com.noma4i.DrawMoar", category: "voice")
+enum VoiceSignal {
+    static let silenceThreshold: Float = 1e-4
+    static let silentMessage = "No audio recorded. Check the microphone."
+
+    static func rms(_ samples: [Float]) -> Float {
+        guard !samples.isEmpty else { return 0 }
+        return (samples.reduce(0) { $0 + $1 * $1 } / Float(samples.count)).squareRoot()
+    }
+}
+
+enum SpeechTokens {
+    private static let maxMarkerWords = 4
+
+    static func clean(_ words: [NoteBuilder.Word]) -> [NoteBuilder.Word] {
+        var result: [NoteBuilder.Word] = []
+        var closer: Character?
+        var span = 0
+        for word in words {
+            var kept = ""
+            if closer != nil {
+                span += 1
+                if span > maxMarkerWords {
+                    closer = nil
+                }
+            }
+            for character in word.text.replacingOccurrences(of: "<\\|[^|>]*\\|>", with: "", options: .regularExpression) {
+                if let expected = closer {
+                    if character == expected {
+                        closer = nil
+                    }
+                } else if character == "[" || character == "(" {
+                    closer = character == "[" ? "]" : ")"
+                    span = 0
+                } else {
+                    kept.append(character)
+                }
+            }
+            let text = kept.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty {
+                result.append(NoteBuilder.Word(text: text, start: word.start, end: word.end))
+            }
+        }
+        return result
+    }
+}
+
+let voiceLog = Logger(subsystem: "com.noma4i.DrawMoar", category: "voice")
 
 @MainActor @Observable final class VoiceModel {
     private(set) var engine: VoiceEngine
@@ -321,7 +367,7 @@ private let voiceLog = Logger(subsystem: "com.noma4i.DrawMoar", category: "voice
     func transcribe(_ samples: [Float]) async throws -> [NoteBuilder.Word] {
         try await load()
         guard let transcriber else { throw VoiceError.notInstalled }
-        return try await transcriber(samples)
+        return try await SpeechTokens.clean(transcriber(samples))
     }
 
     nonisolated static func loadInstalled() async throws -> Transcriber {

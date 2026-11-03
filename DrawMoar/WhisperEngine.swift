@@ -21,7 +21,7 @@ enum WhisperEngine {
 
     static func load() async throws -> Transcriber {
         let kit = try await WhisperKit(WhisperKitConfig(modelFolder: directory.path, verbose: false, logLevel: .none, prewarm: true, load: true, download: false))
-        let options = DecodingOptions(task: .transcribe, language: nil, usePrefillPrompt: true, detectLanguage: true, wordTimestamps: true)
+        let options = DecodingOptions(task: .transcribe, language: nil, usePrefillPrompt: true, detectLanguage: true, skipSpecialTokens: true, wordTimestamps: true)
         return { samples in
             let results = try await kit.transcribe(audioArray: samples, decodeOptions: options)
             return words(from: results.flatMap(\.segments))

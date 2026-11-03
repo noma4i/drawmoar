@@ -25,6 +25,8 @@
 ### Fixed
 
 - Connecting through Tailscale or a Remote address also tries the default port 47823, so a pairing that stored a wrong port still connects.
+- Voice notes no longer contain engine markers such as [BLANK_AUDIO] or [MUSIC]; empty phrases are not created.
+- A recording with no sound shows "No audio recorded. Check the microphone." instead of sending an empty note. Each recording starts a fresh audio engine after the audio session is activated in normal input mode.
 
 ## [1.2.0] - 2026-11-02
 

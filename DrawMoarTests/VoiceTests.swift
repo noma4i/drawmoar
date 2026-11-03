@@ -377,4 +377,50 @@ extension VoiceTests {
             throw MacError.remote("unknown")
         }
     }
+
+    func testSpeechTokenFilter() {
+        func word(_ text: String, _ start: Double) -> NoteBuilder.Word {
+            .init(text: text, start: start, end: start + 0.5)
+        }
+        XCTAssertTrue(SpeechTokens.clean([word("[BLANK_AUDIO]", 0)]).isEmpty)
+        XCTAssertTrue(SpeechTokens.clean([word("[BLANK", 0), word("_AUDIO]", 1)]).isEmpty)
+        XCTAssertTrue(SpeechTokens.clean([word("(silence)", 0), word("<|en|>", 1)]).isEmpty)
+        let kept = SpeechTokens.clean([word("Hello", 0), word("[MUSIC]", 1), word("world", 2)])
+        XCTAssertEqual(kept.map(\.text), ["Hello", "world"])
+        XCTAssertEqual(kept.map(\.start), [0, 2])
+        XCTAssertEqual(SpeechTokens.clean([word("<|en|>Hi", 3)]).map(\.text), ["Hi"])
+    }
+
+    func testRecorderActivatesSessionBeforeEngine() throws {
+        final class Spy: AudioSessioning {
+            var calls: [String] = []
+            func configure(_ category: AVAudioSession.Category, mode: AVAudioSession.Mode) throws {
+                calls.append("category \(category.rawValue) \(mode.rawValue)")
+            }
+
+            func activate(_ active: Bool) throws {
+                calls.append("active \(active)")
+            }
+        }
+        let spy = Spy()
+        try VoiceRecorder(session: spy).activateSession()
+        XCTAssertEqual(spy.calls, ["category \(AVAudioSession.Category.record.rawValue) \(AVAudioSession.Mode.default.rawValue)", "active true"])
+    }
+
+    @MainActor func testSilentTakeSendsNoNote() async throws {
+        let client = VoiceClient()
+        var transcribed = 0
+        let model = try EditorModel(client: client, defaults: XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), delay: {}, startVoice: {}, stopVoice: { (Array(repeating: 0, count: 32000), Date()) }, transcribeVoice: { _ in
+            transcribed += 1
+            return []
+        })
+        model.mode = .note
+        model.image = UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10)).image { _ in }
+        await model.toggleRecording()
+        await model.toggleRecording()
+        XCTAssertEqual(model.error, "No audio recorded. Check the microphone.")
+        XCTAssertEqual(transcribed, 0)
+        XCTAssertEqual(client.noteCount, 0)
+        XCTAssertFalse(model.recording)
+    }
 }
