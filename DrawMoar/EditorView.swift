@@ -56,7 +56,7 @@ struct EditorView: View {
             Button("Settings") { flow.showSettings = true }
             Button("Cancel", role: .cancel) {}
         } message: { Text("Download it in Settings > Voice.") }
-        .onChange(of: EditorModel.interruptsPenStroke(scenePhase: scenePhase, modalPresented: flow.showSettings || showHistory && sizeClass != .regular || replay != nil || model.showVoiceSettings)) { _, interrupted in
+        .onChange(of: EditorModel.interruptsPenStroke(scenePhase: scenePhase, modalPresented: flow.showSettings || history.showsSheet(regular: sizeClass == .regular) || replay != nil || model.showVoiceSettings)) { _, interrupted in
             if interrupted {
                 model.setUsingTool(false)
             }
@@ -307,16 +307,17 @@ struct EditorView: View {
         return Button {
             Task { await model.toggleRecording() }
         } label: {
-            Image(systemName: state.recording ? "stop.circle.fill" : "mic")
-                .opacity(busy ? 0.35 : 1)
-                .frame(width: Self.slot, height: Self.slot)
-                .overlay(alignment: .topTrailing) {
-                    if busy {
-                        ProgressView().controlSize(.mini).frame(maxWidth: 16, maxHeight: 16).accessibilityHidden(true)
-                    }
+            ZStack {
+                Image(systemName: state.recording ? "stop.circle.fill" : "mic")
+                    .opacity(busy ? 0.35 : 1)
+                if busy {
+                    ProgressView().controlSize(.mini).accessibilityHidden(true)
                 }
-                .animation(.easeOut(duration: 0.15), value: busy)
-                .animation(.easeOut(duration: 0.15), value: state.recording)
+            }
+            .frame(width: Self.slot, height: Self.slot)
+            .fixedSize()
+            .animation(.easeOut(duration: 0.15), value: busy)
+            .animation(.easeOut(duration: 0.15), value: state.recording)
         }
         .tint(state.recording ? .red : nil)
         .disabled(!EditorBarItem.mic.isEnabled(state))
