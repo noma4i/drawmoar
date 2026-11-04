@@ -657,11 +657,11 @@ enum EditorBarItem: CaseIterable {
         allCases
     }
 
-    static func placement(in layout: ToolRowLayout) -> (leading: [EditorBarItem], bar: [EditorBarItem], menu: [EditorBarItem]) {
+    static func placement(in layout: ToolRowLayout) -> (leading: [EditorBarItem], toolRow: [EditorBarItem], bar: [EditorBarItem], menu: [EditorBarItem]) {
         switch layout {
-        case .oneRow: ([.settings, .history, .mode], [.mic, .undo, .redo, .new], [.replay, .crop, .window])
-        case .oneRowWithPill: ([.settings, .history], [.mic, .replay, .crop, .window, .undo, .redo, .new], [])
-        case .twoRows: ([.settings, .history, .mode], [.mic, .replay, .crop, .window, .undo, .redo, .new], [])
+        case .oneRow: ([.settings, .history, .mode], [], [.mic, .undo, .redo, .new], [.replay, .crop, .window])
+        case .oneRowWithPill: ([.settings, .history], [.mode], [.mic, .replay, .crop, .window, .undo, .redo, .new], [])
+        case .twoRows: ([.settings, .history, .mode], [], [.mic, .replay, .crop, .window, .undo, .redo, .new], [])
         }
     }
 

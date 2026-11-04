@@ -42,7 +42,7 @@ import XCTest
     func testEveryToolbarItemHasOnePlacementInEachLayout() {
         for layout in [ToolRowLayout.oneRowWithPill, .oneRow, .twoRows] {
             let placed = EditorBarItem.placement(in: layout)
-            let all = placed.leading + placed.bar + placed.menu
+            let all = placed.leading + placed.toolRow + placed.bar + placed.menu
             XCTAssertEqual(all.count, EditorBarItem.allCases.count, "\(layout)")
             XCTAssertEqual(Set(all), Set(EditorBarItem.allCases), "\(layout)")
         }
