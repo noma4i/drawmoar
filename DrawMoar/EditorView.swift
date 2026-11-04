@@ -15,6 +15,7 @@ struct EditorView: View {
     @State private var canvas = PKCanvasView()
     @State private var settingsChanged = false
     @State private var replay: ReplaySource?
+    @State private var verticalBar = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -216,11 +217,12 @@ struct EditorView: View {
     fileprivate static let compactSlot: CGFloat = 38
     fileprivate static let pillWidth: CGFloat = 2 * pillSegmentWidth + 6
 
-    private func barButton(_ title: String, _ symbol: String, titled: Bool = false, tint: Color? = nil, action: @escaping () -> Void) -> some View {
+    private func barButton(_ title: String, _ symbol: String, titled: Bool = false, tint: Color? = nil, onAxis: ((Bool) -> Void)? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             BarAxis { vertical in
                 Label(title, systemImage: symbol)
                     .labelStyle(AdaptiveLabelStyle(showsTitle: titled && !vertical))
+                    .onChange(of: vertical, initial: true) { _, isVertical in onAxis?(isVertical) }
             }
         }
         .tint(tint)
@@ -233,7 +235,7 @@ struct EditorView: View {
 
     @ToolbarContentBuilder private func leadingToolbar(layout: ToolRowLayout) -> some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            barButton("Settings", "gearshape") { flow.showSettings = true }
+            barButton("Settings", "gearshape", onAxis: { verticalBar = $0 }) { flow.showSettings = true }
         }
         ToolbarItem(placement: .topBarLeading) {
             barButton("History", "sidebar.left") { history.toggle(regular: sizeClass == .regular) }
@@ -254,7 +256,7 @@ struct EditorView: View {
 
     @ToolbarContentBuilder private func trailingToolbar(layout: ToolRowLayout) -> some ToolbarContent {
         let state = barState
-        if layout == .oneRow {
+        if TrailingToolbar.choose(layout: layout, verticalBar: verticalBar) == .pinnedGroup {
             ToolbarItem(placement: .topBarTrailing) {
                 oneRowTrailing(state)
             }
@@ -613,6 +615,14 @@ enum ToolRowLayout {
             return .oneRowWithPill
         }
         return width >= oneRowWidth ? .oneRow : .twoRows
+    }
+}
+
+enum TrailingToolbar {
+    case pinnedGroup, systemItems
+
+    static func choose(layout: ToolRowLayout, verticalBar: Bool) -> TrailingToolbar {
+        layout == .oneRow && !verticalBar ? .pinnedGroup : .systemItems
     }
 }
 

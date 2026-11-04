@@ -52,6 +52,13 @@ import XCTest
         XCTAssertEqual(oneRow.menu, [.replay, .crop, .window])
     }
 
+    func testPinnedGroupIsUsedOnlyOnAHorizontalOneRowBar() {
+        let table: [(ToolRowLayout, Bool, TrailingToolbar)] = [(.oneRow, false, .pinnedGroup), (.oneRow, true, .systemItems), (.oneRowWithPill, false, .systemItems), (.oneRowWithPill, true, .systemItems), (.twoRows, false, .systemItems), (.twoRows, true, .systemItems)]
+        for (layout, vertical, expected) in table {
+            XCTAssertEqual(TrailingToolbar.choose(layout: layout, verticalBar: vertical), expected, "\(layout) vertical \(vertical)")
+        }
+    }
+
     func testToolbarItemsAreIdenticalInEveryState() {
         let expected: [EditorBarItem] = [.settings, .history, .mode, .mic, .replay, .crop, .window, .undo, .redo, .new]
         var count = 0
